@@ -124,3 +124,15 @@ def test_project_points_outside_image_invalid():
     pts = np.array([[10.0, 0.0, -1.0]])  # projects far off-image
     _, valid = project_points(pts, K, T, (8, 6))
     assert not valid[0]
+
+
+def test_mat_to_quat_round_trip():
+    from transforms import mat_to_quat
+    rng = np.random.default_rng(7)
+    for _ in range(20):
+        q = rng.normal(size=4)
+        q /= np.linalg.norm(q)
+        R = quat_to_mat(*q)
+        q2 = mat_to_quat(R)
+        R2 = quat_to_mat(*q2)
+        np.testing.assert_allclose(R2, R, atol=1e-9)
