@@ -90,3 +90,11 @@ def test_save_load_round_trip(tmp_path):
     np.testing.assert_array_equal(g2.angle_bins, grid.angle_bins)
     assert g2.cell_m == grid.cell_m
     assert g2.bounds == grid.bounds
+
+
+def test_hull_area_m2():
+    grid = CoverageGrid([[0.0, 0.1], [0.0, 0.1]], cell_m=0.01)
+    grid.seen_count[2:8, 2:8] = 5  # 6x6 cells of 1 cm2 each
+    area = grid.hull_area_m2(min_seen=2)
+    assert area == pytest.approx(36e-4, rel=0.35)  # hull rasterization slack
+    assert CoverageGrid(BOUNDS, cell_m=0.01).hull_area_m2() == 0.0

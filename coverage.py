@@ -83,6 +83,9 @@ class CoverageGrid:
         cv2.fillConvexPoly(mask, hull, 1)
         return mask.astype(bool)
 
+    def hull_area_m2(self, min_seen=1):
+        return float(self.hull_mask(min_seen).sum()) * self.cell_m ** 2
+
     def hull_coverage_fraction(self, min_seen=1):
         hull = self.hull_mask(min_seen)
         if not hull.any():
