@@ -45,7 +45,7 @@ def test_export_writes_versioned_common_canvas_manifest(session):
 
     assert path.exists()
     assert json.loads(path.read_text()) == manifest
-    assert manifest["version"] == 1
+    assert manifest["version"] == 2
     assert 1 <= len(manifest["views"]) <= 3
     assert 0 < manifest["selected_coverage"] <= manifest["union_coverage"] <= 1
     assert all((session / view["image"]).exists() for view in manifest["views"])
