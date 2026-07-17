@@ -41,11 +41,18 @@ class ViewCandidate:
 
 def select_covering_views(
     candidates: list[ViewCandidate], max_frames: int = 5,
-    min_gain: float = 0.002,
+    min_gain: float = 0.002, min_frames: int = 1,
 ) -> list[ViewCandidate]:
-    """Greedily cover the usable union, preferring quality on coverage ties."""
+    """Cover the union, then retain time-diverse views for confirmation.
+
+    Coverage alone can legitimately stop after one frame.  Instance inventory
+    still needs independent views so a one-frame background false positive can
+    be contradicted without raising a global confidence threshold that would
+    also delete real edge pieces.
+    """
     if not candidates or max_frames <= 0:
         return []
+    min_frames = max(1, min(int(min_frames), max_frames, len(candidates)))
     union = np.logical_or.reduce([candidate.valid for candidate in candidates])
     union_pixels = int(union.sum())
     if union_pixels == 0:
@@ -62,11 +69,47 @@ def select_covering_views(
                            -candidate.frame_id, candidate))
         new_pixels, _, _, chosen = max(ranked, key=lambda item: item[:3])
         if selected and new_pixels / union_pixels < min_gain:
-            break
+            if len(selected) >= min_frames:
+                break
+            # Once meaningful coverage gain is exhausted, choose a clean view
+            # far from every already-selected frame in time.  Restrict this to
+            # the better half of the session's quality distribution, then use
+            # quality as a gentle multiplier rather than letting adjacent peak
+            # frames crowd out independent confirmation evidence.
+            quality_floor = float(np.median([
+                candidate.quality for candidate in candidates
+            ]))
+            eligible = [
+                candidate for candidate in remaining
+                if candidate.quality >= quality_floor
+            ] or remaining
+            frame_span = max(
+                1,
+                max(candidate.frame_id for candidate in candidates)
+                - min(candidate.frame_id for candidate in candidates),
+            )
+            quality_scale = max(
+                1e-9, max(max(0.0, candidate.quality)
+                          for candidate in eligible)
+            )
+            chosen = max(
+                eligible,
+                key=lambda candidate: (
+                    min(abs(candidate.frame_id - item.frame_id)
+                        for item in selected) / frame_span
+                    * (0.5 + 0.5 * max(0.0, candidate.quality)
+                       / quality_scale),
+                    candidate.quality,
+                    -candidate.frame_id,
+                ),
+            )
         selected.append(chosen)
         remaining.remove(chosen)
         covered |= chosen.valid
-        if int((covered & union).sum()) / union_pixels >= 0.995:
+        if (
+            len(selected) >= min_frames
+            and int((covered & union).sum()) / union_pixels >= 0.995
+        ):
             break
     return selected
 
@@ -114,7 +157,7 @@ def _raise_uv_per_cm(record, table_frame, origin_xy, px_per_m, size_wh):
 
 def export_multiview(
     session_dir, px_per_mm: float = 2.0, max_frames: int = 5,
-    edge_margin_px: int = 8,
+    edge_margin_px: int = 8, min_frames: int = 3,
 ) -> tuple[Path, dict]:
     session_dir = Path(session_dir)
     frames = SessionReader(session_dir).frames()
@@ -141,7 +184,10 @@ def export_multiview(
         candidates.append(ViewCandidate(record.frame_id, quality, image, valid))
 
     union = np.logical_or.reduce([candidate.valid for candidate in candidates])
-    selected = select_covering_views(candidates, max_frames=max_frames)
+    confirmation_views = min(max_frames, max(1, min_frames))
+    selected = select_covering_views(
+        candidates, max_frames=max_frames, min_frames=confirmation_views
+    )
     selected_union = (
         np.logical_or.reduce([candidate.valid for candidate in selected])
         if selected else np.zeros_like(union)
@@ -191,6 +237,11 @@ def export_multiview(
         "edge_margin_px": edge_margin_px,
         "union_coverage": float(union.sum() / canvas_pixels),
         "selected_coverage": float(selected_union.sum() / canvas_pixels),
+        "selection": {
+            "max_frames": max_frames,
+            "min_confirmation_views": confirmation_views,
+            "strategy": "coverage_then_time_diverse_quality",
+        },
         # The hard polygon is intentionally broader than the dense workspace
         # used for the legacy rectified canvas.  It comes only from repeated
         # table-plane depth observations, never from detector outputs.
@@ -216,11 +267,13 @@ def main():
     parser.add_argument("session")
     parser.add_argument("--px-per-mm", type=float, default=2.0)
     parser.add_argument("--max-frames", type=int, default=5)
+    parser.add_argument("--min-frames", type=int, default=3)
     parser.add_argument("--edge-margin", type=int, default=8)
     args = parser.parse_args()
     path, manifest = export_multiview(
         args.session, px_per_mm=args.px_per_mm,
         max_frames=args.max_frames, edge_margin_px=args.edge_margin,
+        min_frames=args.min_frames,
     )
     print(f"wrote {path}")
     print(

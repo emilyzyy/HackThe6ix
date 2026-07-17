@@ -30,6 +30,27 @@ def test_selection_reaches_union_and_prefers_sharp_coverage_tie():
     assert [view.frame_id for view in selected] == [2, 3]
 
 
+def test_selection_adds_time_diverse_confirmation_views_after_full_coverage():
+    full = np.ones((3, 4), dtype=bool)
+    candidates = [
+        _candidate(0, 1.0, full),
+        _candidate(10, 1.0, full),
+        _candidate(20, 10.0, full),
+        _candidate(30, 1.0, full),
+        _candidate(40, 1.0, full),
+    ]
+
+    selected = select_covering_views(
+        candidates, max_frames=5, min_frames=3
+    )
+
+    assert len(selected) == 3
+    assert selected[0].frame_id == 20
+    assert max(view.frame_id for view in selected) - min(
+        view.frame_id for view in selected
+    ) == 40
+
+
 @pytest.fixture
 def session(tmp_path):
     out = tmp_path / "session"
@@ -46,7 +67,8 @@ def test_export_writes_versioned_common_canvas_manifest(session):
     assert path.exists()
     assert json.loads(path.read_text()) == manifest
     assert manifest["version"] == 3
-    assert 1 <= len(manifest["views"]) <= 3
+    assert len(manifest["views"]) == 3
+    assert manifest["selection"]["min_confirmation_views"] == 3
     assert 0 < manifest["selected_coverage"] <= manifest["union_coverage"] <= 1
     assert all((session / view["image"]).exists() for view in manifest["views"])
     assert all((session / view["mask"]).exists() for view in manifest["views"])
