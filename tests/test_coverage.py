@@ -98,3 +98,69 @@ def test_hull_area_m2():
     area = grid.hull_area_m2(min_seen=2)
     assert area == pytest.approx(36e-4, rel=0.35)  # hull rasterization slack
     assert CoverageGrid(BOUNDS, cell_m=0.01).hull_area_m2() == 0.0
+
+
+def _grid_with(cells_value_5):
+    grid = CoverageGrid([[0.0, 0.2], [0.0, 0.2]], cell_m=0.01)  # 20x20
+    for ys, xs in cells_value_5:
+        grid.seen_count[ys, xs] = 5
+    return grid
+
+
+def test_workspace_keeps_only_dominant_component():
+    grid = _grid_with([(np.s_[2:12], np.s_[2:12]),   # 10x10 main blob
+                       (np.s_[16:18], np.s_[16:18])])  # far 2x2 junk patch
+    ws = grid.workspace_mask(min_seen=2)
+    assert ws[2:12, 2:12].all()
+    assert not ws[16:18, 16:18].any()
+
+
+def test_workspace_excludes_connected_low_density_background():
+    grid = CoverageGrid([[0.0, 0.3], [0.0, 0.3]], cell_m=0.01)
+    # The central workspace is revisited throughout the scan.  A thin path
+    # connects it to a far background patch that was only seen a few times.
+    grid.seen_count[8:22, 8:22] = 20
+    grid.seen_count[14:16, 22:27] = 2
+    grid.seen_count[12:18, 27:30] = 2
+
+    ws = grid.workspace_mask(min_seen=2)
+
+    assert ws[8:22, 8:22].all()
+    assert not ws[12:18, 27:30].any()
+
+
+def test_workspace_concave_region_excludes_open_mouth():
+    # U shape: hull-based coverage is stuck below 1, workspace-based is 1.0.
+    grid = _grid_with([(np.s_[2:18], np.s_[2:6]),
+                       (np.s_[2:18], np.s_[14:18]),
+                       (np.s_[14:18], np.s_[2:18])])
+    assert grid.hull_coverage_fraction(min_seen=2) < 0.9
+    assert grid.workspace_coverage_fraction(min_seen=2) == pytest.approx(1.0)
+
+
+def test_workspace_counts_enclosed_holes():
+    # Ring: the enclosed hole must count as unswept workspace.
+    grid = _grid_with([(np.s_[2:18], np.s_[2:18])])
+    grid.seen_count[8:12, 8:12] = 0  # enclosed 4x4 hole
+    ws = grid.workspace_mask(min_seen=2)
+    assert ws[8:12, 8:12].all()  # hole is part of the workspace
+    frac = grid.workspace_coverage_fraction(min_seen=2)
+    assert 0.9 < frac < 1.0
+    grid.seen_count[8:12, 8:12] = 5  # sweep the hole
+    assert grid.workspace_coverage_fraction(min_seen=2) == pytest.approx(1.0)
+
+
+def test_workspace_bounds_xy():
+    grid = _grid_with([(np.s_[2:12], np.s_[4:14])])
+    (x0, x1), (y0, y1) = grid.workspace_bounds_xy(min_seen=2)
+    assert x0 == pytest.approx(0.04, abs=0.011)
+    assert x1 == pytest.approx(0.14, abs=0.011)
+    assert y0 == pytest.approx(0.02, abs=0.011)
+    assert y1 == pytest.approx(0.12, abs=0.011)
+
+
+def test_workspace_empty_grid():
+    grid = CoverageGrid([[0.0, 0.2], [0.0, 0.2]], cell_m=0.01)
+    assert not grid.workspace_mask().any()
+    assert grid.workspace_coverage_fraction() == 0.0
+    assert grid.workspace_bounds_xy() is None

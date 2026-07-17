@@ -2,8 +2,8 @@
 
 Aerial-map view of the table grid: unseen cells gray, seen cells filled with
 RGB projected onto the plane (latest observation wins — detail comes from the
-high-res RGB, not depth). Shows % hull coverage and a COVERAGE COMPLETE
-banner.
+high-res RGB, not depth). Shows % bounded-workspace coverage and a
+COVERAGE COMPLETE banner.
 
 Replay:  python viewer.py sessions/<ts> [--fps 2] [--cell 0.005]
 Live:    python capture.py --live-view   (uses LiveCoverageView below)
@@ -22,12 +22,12 @@ UNSEEN_GRAY = 128
 MIN_WINDOW_H = 480
 # "Complete" is only meaningful once a real workspace has been swept.
 MIN_COMPLETE_FRAMES = 20
-MIN_HULL_AREA_M2 = 0.04  # 20 cm x 20 cm
+MIN_WORKSPACE_AREA_M2 = 0.04  # 20 cm x 20 cm
 
 
 def completion_allowed(grid, frames_processed, min_seen=2):
     return (frames_processed >= MIN_COMPLETE_FRAMES
-            and grid.hull_area_m2(min_seen) >= MIN_HULL_AREA_M2)
+            and grid.workspace_area_m2(min_seen) >= MIN_WORKSPACE_AREA_M2)
 
 
 class CoverageView:
@@ -69,8 +69,8 @@ class CoverageView:
         """BGR frame for display: canvas + coverage overlay (table y up).
 
         show_complete=False suppresses the COMPLETE banner — callers gate it
-        on minimum frames/hull area, since a barely-swept region trivially
-        covers its own hull.
+        on minimum frames/workspace area, since a barely-swept region
+        trivially covers itself.
         """
         img = self.canvas.copy()
         img[~self.grid.observed_mask()] = UNSEEN_GRAY
@@ -79,8 +79,8 @@ class CoverageView:
             s = int(np.ceil(MIN_WINDOW_H / img.shape[0]))
             img = cv2.resize(img, None, fx=s, fy=s,
                              interpolation=cv2.INTER_NEAREST)
-        frac = self.grid.hull_coverage_fraction(min_seen)
-        label = f"coverage {100 * frac:.0f}%  (cells seen>={min_seen})"
+        frac = self.grid.workspace_coverage_fraction(min_seen)
+        label = f"workspace coverage {100 * frac:.0f}%  (cells seen>={min_seen})"
         cv2.putText(img, label, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                     (0, 0, 0), 4, cv2.LINE_AA)
         cv2.putText(img, label, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
@@ -153,7 +153,7 @@ class LiveCoverageView:
                 self._grid, self.controller.writer.frame_count)
             img = self._view.render(complete_threshold=self.threshold,
                                     show_complete=allowed)
-            frac = self._grid.hull_coverage_fraction(2)
+            frac = self._grid.workspace_coverage_fraction(2)
             if allowed and frac >= self.threshold and not self._announced:
                 self._announced = True
                 print("\ncoverage complete")
@@ -194,14 +194,14 @@ def main():
         allowed = completion_allowed(grid, n)
         img = view.render(complete_threshold=args.threshold,
                           show_complete=allowed)
-        frac = grid.hull_coverage_fraction(2)
+        frac = grid.workspace_coverage_fraction(2)
         if allowed and frac >= args.threshold and not announced:
             announced = True
             print("coverage complete")
         cv2.imshow("coverage replay", img)
         if cv2.waitKey(int(1000 / args.fps)) & 0xFF == ord("q"):
             break
-    print(f"final hull coverage: {100 * grid.hull_coverage_fraction(2):.1f}%")
+    print(f"final workspace coverage: {100 * grid.workspace_coverage_fraction(2):.1f}%")
     cv2.imshow("coverage replay", view.render())
     cv2.waitKey(0)
     cv2.destroyAllWindows()

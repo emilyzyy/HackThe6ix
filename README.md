@@ -29,7 +29,8 @@ every 2 s; on stop you get a summary (frames, duration, disk size).
 
 With `--live-view`, once ~20 frames exist the table plane is fitted and a
 coverage window opens: gray = unseen, RGB aerial map = seen, plus a coverage %
-and a COVERAGE COMPLETE banner once ≥95 % of the swept hull is observed.
+and a COVERAGE COMPLETE banner once ≥95 % of the dense workspace is observed.
+Sparse desk/floor observations are excluded from that workspace.
 
 ## Session layout
 
@@ -58,7 +59,10 @@ python topdown.py sessions/<ts>               # ortho top-down → topdown.jpg
 python topdown.py sessions/<ts> --mode best-frame   # single-frame fallback
 ```
 
-`topdown.jpg` is the hand-off to `lego-cv`. `topdown.json` documents the
+`topdown.jpg` is cropped to the bounded workspace by default, keeping desk,
+laptop, and floor clutter out of the `lego-cv` hand-off. Use
+`python topdown.py <session> --no-workspace` for an uncropped diagnostic view.
+`topdown.json` documents the
 mapping: pixel (u, v) ↔ table point `origin_xy + (u, v) / px_per_m`.
 
 ## No phone? Synthetic sessions
@@ -75,7 +79,7 @@ real capture, iterate on the recorded session instead.
 ## Tests
 
 ```bash
-pytest            # 46 tests, no device needed
+pytest            # 54 tests, no device needed
 ```
 
 ## Coordinate conventions

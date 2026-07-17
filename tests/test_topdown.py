@@ -86,3 +86,18 @@ def test_best_frame_export(session):
     corr, checker_acc, _ = _truth_correlation(out, meta, session)
     assert corr > 0.85
     assert checker_acc > 0.75
+
+
+def test_export_crops_to_workspace(session):
+    # Full export vs workspace export: workspace bounds never exceed extent,
+    # and the export still reproduces the texture.
+    out_full, meta_full = export_topdown(session, mode="ortho", px_per_mm=1.0,
+                                         workspace=False)
+    out_ws, meta_ws = export_topdown(session, mode="ortho", px_per_mm=1.0,
+                                     workspace=True, out_name="topdown_ws.jpg")
+    assert meta_ws["size_wh"][0] <= meta_full["size_wh"][0]
+    assert meta_ws["size_wh"][1] <= meta_full["size_wh"][1]
+    assert meta_ws["workspace"] is True
+    corr, checker_acc, filled = _truth_correlation(out_ws, meta_ws, session)
+    assert corr > 0.9 and checker_acc > 0.8
+    assert filled > 0.5

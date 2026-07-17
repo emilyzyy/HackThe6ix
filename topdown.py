@@ -18,9 +18,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from coverage import CoverageGrid, replay_session
 from plane import compute_table_frame, load_table_frame
 from session_io import SessionReader
 from transforms import intrinsics_to_K
+
+WORKSPACE_CROP_PAD_X_M = 0.025
+WORKSPACE_CROP_PAD_Y_M = 0.005
 
 
 def sharpness(img_bgr):
@@ -88,8 +92,16 @@ def _topdownness(rec, tf):
     return float(np.clip(-(fwd_world @ n), 0.0, 1.0))
 
 
+def _load_or_build_grid(session_dir, cell_m=0.005):
+    cov = Path(session_dir) / "coverage.npz"
+    if cov.exists():
+        return CoverageGrid.load(cov)
+    grid, _ = replay_session(session_dir, cell_m=cell_m)
+    return grid
+
+
 def export_topdown(session_dir, mode="ortho", px_per_mm=2.0,
-                   out_name="topdown.jpg"):
+                   out_name="topdown.jpg", workspace=True, min_seen=2):
     session_dir = Path(session_dir)
     try:
         tf = load_table_frame(session_dir)
@@ -99,6 +111,19 @@ def export_topdown(session_dir, mode="ortho", px_per_mm=2.0,
 
     px_per_m = px_per_mm * 1000.0
     (x0, x1), (y0, y1) = tf["extent_xy"]
+
+    # Bound the output to the observed workspace so background beyond the
+    # swept table (desk edge, laptop, floor) never reaches the detector.
+    if workspace:
+        grid = _load_or_build_grid(session_dir)
+        wb = grid.workspace_bounds_xy(min_seen)
+        if wb is None:
+            workspace = False
+        else:
+            x0 = max(x0, wb[0][0] - WORKSPACE_CROP_PAD_X_M)
+            x1 = min(x1, wb[0][1] + WORKSPACE_CROP_PAD_X_M)
+            y0 = max(y0, wb[1][0] - WORKSPACE_CROP_PAD_Y_M)
+            y1 = min(y1, wb[1][1] + WORKSPACE_CROP_PAD_Y_M)
     origin_xy = (x0, y0)
     out_wh = (int(np.ceil((x1 - x0) * px_per_m)),
               int(np.ceil((y1 - y0) * px_per_m)))
@@ -133,7 +158,8 @@ def export_topdown(session_dir, mode="ortho", px_per_mm=2.0,
     cv2.imwrite(str(out_path), out_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
     # Pixel (u, v) maps to table point origin_xy + (u, v) / px_per_m.
     meta = {"mode": mode, "px_per_m": px_per_m, "origin_xy": list(origin_xy),
-            "size_wh": list(out_wh), "best_frame_id": best_frame_id}
+            "size_wh": list(out_wh), "best_frame_id": best_frame_id,
+            "workspace": bool(workspace)}
     with open(session_dir / "topdown.json", "w") as f:
         json.dump(meta, f, indent=1)
     return out_path, meta
@@ -145,9 +171,12 @@ def main():
     ap.add_argument("--mode", choices=["ortho", "best-frame"], default="ortho")
     ap.add_argument("--px-per-mm", type=float, default=2.0)
     ap.add_argument("--out", default="topdown.jpg")
+    ap.add_argument("--no-workspace", action="store_true",
+                    help="skip cropping to the bounded workspace")
     args = ap.parse_args()
     path, meta = export_topdown(args.session, mode=args.mode,
-                                px_per_mm=args.px_per_mm, out_name=args.out)
+                                px_per_mm=args.px_per_mm, out_name=args.out,
+                                workspace=not args.no_workspace)
     w, h = meta["size_wh"]
     extra = (f" (best frame {meta['best_frame_id']})"
              if meta["best_frame_id"] is not None else "")

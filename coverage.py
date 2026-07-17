@@ -3,8 +3,8 @@
 Cells live in table-frame XY (see plane.py). Per cell we track how many
 retained frames observed it (seen_count) and from which directions
 (angle_bins: bitmask of 8 azimuth octants of the point->camera direction).
-"Coverage complete" is measured against the convex hull of everything
-observed so far, not the full grid bounds.
+"Coverage complete" is measured against the dense, repeatedly observed
+workspace core, excluding sparse connected observations of desk/floor clutter.
 
 Usage: python coverage.py sessions/<ts> [--cell 0.003] [--min-seen 2]
 """
@@ -17,6 +17,7 @@ import numpy as np
 from transforms import unproject_depth
 
 N_ANGLE_BINS = 8
+WORKSPACE_DENSITY_FRACTION = 0.80
 
 
 class CoverageGrid:
@@ -92,6 +93,59 @@ class CoverageGrid:
             return 0.0
         return float(self.observed_mask(min_seen)[hull].mean())
 
+    def workspace_mask(self, min_seen=2, close_cells=5,
+                       density_fraction=WORKSPACE_DENSITY_FRACTION):
+        """The bounded workspace: dense dominant component, holes filled.
+
+        Cells must be revisited in at least ``density_fraction`` of the most
+        observed cell's frames.  This rejects sparse desk/floor observations
+        even when a thin strip connects them to the table.  The result stays
+        non-convex so concave background corners are not pulled into the
+        workspace; enclosed holes remain so completion still counts them.
+        """
+        peak = int(self.seen_count.max())
+        if peak < min_seen:
+            return np.zeros_like(self.seen_count, dtype=bool)
+        density_seen = max(min_seen, int(np.ceil(peak * density_fraction)))
+        obs = self.observed_mask(density_seen).astype(np.uint8)
+        k = np.ones((close_cells, close_cells), np.uint8)
+        # Close on a zero-padded copy: cv2 erosion treats out-of-image pixels
+        # as foreground, which would smear border-adjacent blobs to the edge.
+        p = close_cells
+        closed = cv2.morphologyEx(np.pad(obs, p), cv2.MORPH_CLOSE, k)[p:-p, p:-p]
+        _, labels, stats, _ = cv2.connectedComponentsWithStats(closed)
+        main = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        comp = (labels == main).astype(np.uint8)
+        # Fill enclosed holes: flood the outside on a padded copy; anything
+        # the flood can't reach is inside the workspace.
+        padded = np.pad(comp, 1)
+        ff_mask = np.zeros((padded.shape[0] + 2, padded.shape[1] + 2), np.uint8)
+        cv2.floodFill(padded, ff_mask, (0, 0), 1)
+        holes = (padded == 0)[1:-1, 1:-1]
+        return comp.astype(bool) | holes
+
+    def workspace_coverage_fraction(self, min_seen=2, close_cells=5):
+        ws = self.workspace_mask(min_seen, close_cells)
+        if not ws.any():
+            return 0.0
+        return float(self.observed_mask(min_seen)[ws].mean())
+
+    def workspace_area_m2(self, min_seen=2, close_cells=5):
+        cells = self.workspace_mask(min_seen, close_cells).sum()
+        return float(cells) * self.cell_m ** 2
+
+    def workspace_bounds_xy(self, min_seen=2, close_cells=5, pad=0.0):
+        """[[x0, x1], [y0, y1]] of the workspace in table coords, or None."""
+        ws = self.workspace_mask(min_seen, close_cells)
+        if not ws.any():
+            return None
+        ys, xs = np.nonzero(ws)
+        (gx0, _), (gy0, _) = self.bounds
+        return [[gx0 + xs.min() * self.cell_m - pad,
+                 gx0 + (xs.max() + 1) * self.cell_m + pad],
+                [gy0 + ys.min() * self.cell_m - pad,
+                 gy0 + (ys.max() + 1) * self.cell_m + pad]]
+
     def save(self, path):
         np.savez_compressed(path, seen_count=self.seen_count,
                             angle_bins=self.angle_bins, cell_m=self.cell_m,
@@ -137,10 +191,13 @@ def main():
     grid, _ = replay_session(args.session, cell_m=args.cell)
     out = f"{args.session}/coverage.npz"
     grid.save(out)
-    frac = grid.hull_coverage_fraction(min_seen=args.min_seen)
     print(f"grid {grid.width}x{grid.height} cells ({args.cell * 1000:.0f} mm)")
     print(f"observed cells: {int(grid.observed_mask(args.min_seen).sum())}")
-    print(f"hull coverage: {100 * frac:.1f}% (min_seen={args.min_seen})")
+    print(f"hull coverage: {100 * grid.hull_coverage_fraction(args.min_seen):.1f}% "
+          f"(min_seen={args.min_seen})")
+    print(f"workspace coverage: "
+          f"{100 * grid.workspace_coverage_fraction(args.min_seen):.1f}% "
+          f"over {grid.workspace_area_m2(args.min_seen):.3f} m2")
     print("wrote", out)
 
 
