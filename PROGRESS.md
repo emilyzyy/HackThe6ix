@@ -58,6 +58,40 @@ Phase 1 deliverables, all committed on codex/option-a-color-detection:
   box-free mosaic + debug/crop_gallery.jpg + per-frame overlays.
 - Tests: lego-capture 61 passing, lego-cv 100 passing.
 
+## Phase 2 GATE results (2026-07-17) — AWAITING EMILY'S APPROVAL
+
+Counts stable 7/8/8/7 ✓. Orange beam correct in 3 of 4 sessions
+(221544 ✓, 234326 ✓ fixed, 005145 ✓; 212422 still "2x8" — see below).
+221544 is now perfect: 8/8 identified, zero unknowns.
+
+Acceptance cases:
+1. 234326 orange regression → **FIXED**: Brick 1x8 (0.84) via second-chance
+   identification (weak chosen-crop IDs retry alternate observations' crops;
+   all alternates evaluated, best score wins).
+2. 212422 "2x8"-for-1x8 → NOT FIXED, correctly skipped: the only view is a
+   side view (stud check's own "not camera-facing" rule; Hough finds 0-1
+   circles). Single-view session — no alternate crop exists.
+3. 005145 1x8-for-6x12 gray → confident-wrong **eliminated** (demoted to
+   unknown): stud count 75 contradicts every 8-stud candidate; "Plate 6x12"
+   is not among Brickognize's candidates for that crop because the crop
+   contains BOTH the plate and the orange beam (merged observation box —
+   the Phase 3 detector's territory).
+4. 212422 white at 0.67 → NOT rescued: white-on-white studs give Hough <=1
+   circle (unreliable -> advisory skips; global threshold untouched per
+   instruction). The analogous white in 221544 WAS recovered (0.79) by
+   second-chance. Single-view session again.
+
+Assessment: both unfixed cases are single-view limitations of session
+212422, not advisory bugs. Options for Emily: (a) accept and proceed to
+Phase 3 (better per-frame boxes also improve crops), (b) recapture 212422
+with a fuller sweep so multiview selects >=2 views.
+
+Phase 2 deliverables (lego-cv, committed): pipeline/studs.py (HoughCircles
+count, 3x contradiction band, rescue/correct/demote, never overrides
+>=0.90); Identification.candidates; second-chance identification;
+stud provenance in multiview_result.json. 118 tests passing (real 6x12 and
+1x8 crops as fixtures).
+
 ## Log
 
 - 2026-07-17: Phase 1 plan written
@@ -69,3 +103,7 @@ Phase 1 deliverables, all committed on codex/option-a-color-detection:
   (b) ID-view selection by obliquity + original-frame fit, (c) quad masking
   of neighbor pieces. Each step validated against the 4 real sessions via
   the new crop galleries. Stopped at GATE (see above).
+- 2026-07-17 (Phase 2): evidence-first — reconstructed the 4 case crops,
+  read cached Brickognize candidates, tuned Hough on real crops before
+  writing code. Key evidence: correct 1x8 existed in 234326's alternate
+  views (f90 0.84); counts ~2x noisy on beams => 3x contradiction band.
