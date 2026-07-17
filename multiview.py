@@ -91,7 +91,7 @@ def _canvas_geometry(session_dir: Path, px_per_m: float):
         int(np.ceil((x1 - x0) * px_per_m)),
         int(np.ceil((y1 - y0) * px_per_m)),
     )
-    return table_frame, origin_xy, size_wh
+    return table_frame, grid, origin_xy, size_wh
 
 
 def _raise_uv_per_cm(record, table_frame, origin_xy, px_per_m, size_wh):
@@ -122,7 +122,9 @@ def export_multiview(
         raise ValueError(f"no frames in {session_dir}")
 
     px_per_m = px_per_mm * 1000.0
-    table_frame, origin_xy, size_wh = _canvas_geometry(session_dir, px_per_m)
+    table_frame, grid, origin_xy, size_wh = _canvas_geometry(
+        session_dir, px_per_m
+    )
     kernel_size = 2 * max(0, edge_margin_px) + 1
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
     candidates: list[ViewCandidate] = []
@@ -181,7 +183,7 @@ def export_multiview(
 
     canvas_pixels = union.size
     manifest = {
-        "version": 2,
+        "version": 3,
         "session_dir": str(session_dir.resolve()),
         "px_per_m": px_per_m,
         "origin_xy": list(origin_xy),
@@ -189,6 +191,17 @@ def export_multiview(
         "edge_margin_px": edge_margin_px,
         "union_coverage": float(union.sum() / canvas_pixels),
         "selected_coverage": float(selected_union.sum() / canvas_pixels),
+        # The hard polygon is intentionally broader than the dense workspace
+        # used for the legacy rectified canvas.  It comes only from repeated
+        # table-plane depth observations, never from detector outputs.
+        "workspace_geometry": {
+            "hard_source": "depth_observed_plane_component",
+            "hard_contours_table_xy": (
+                grid.admissible_workspace_contours_xy()
+            ),
+            "dense_bounds_table_xy": grid.workspace_bounds_xy(2),
+            "table_extent_xy": table_frame["extent_xy"],
+        },
         "views": view_entries,
     }
     manifest_path = output_dir / "manifest.json"

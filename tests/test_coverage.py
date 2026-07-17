@@ -164,3 +164,38 @@ def test_workspace_empty_grid():
     assert not grid.workspace_mask().any()
     assert grid.workspace_coverage_fraction() == 0.0
     assert grid.workspace_bounds_xy() is None
+
+
+def test_admissible_workspace_keeps_outer_repeated_plane_not_only_dense_core():
+    grid = CoverageGrid([[0.0, 0.1], [0.0, 0.1]], cell_m=0.01)
+    grid.seen_count[1:9, 1:9] = 2
+    grid.seen_count[3:7, 3:7] = 10
+
+    admissible = grid.admissible_workspace_mask()
+    dense = grid.workspace_mask()
+
+    assert admissible[1:9, 1:9].all()
+    assert admissible.sum() >= 64
+    assert dense.sum() < admissible.sum()
+
+
+def test_admissible_contour_is_reported_in_table_metres():
+    grid = CoverageGrid([[-0.05, 0.05], [-0.05, 0.05]], cell_m=0.01)
+    grid.seen_count[2:8, 3:9] = 3
+
+    contours = grid.admissible_workspace_contours_xy(simplify_m=0.0)
+
+    assert contours
+    assert all(
+        -0.05 <= value <= 0.05
+        for contour in contours
+        for point in contour
+        for value in point
+    )
+
+
+def test_admissible_workspace_is_empty_without_repeated_plane_cells():
+    grid = CoverageGrid([[0.0, 0.2], [0.0, 0.2]], cell_m=0.01)
+
+    assert not grid.admissible_workspace_mask().any()
+    assert grid.admissible_workspace_contours_xy() == []

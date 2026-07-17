@@ -45,7 +45,7 @@ def test_export_writes_versioned_common_canvas_manifest(session):
 
     assert path.exists()
     assert json.loads(path.read_text()) == manifest
-    assert manifest["version"] == 2
+    assert manifest["version"] == 3
     assert 1 <= len(manifest["views"]) <= 3
     assert 0 < manifest["selected_coverage"] <= manifest["union_coverage"] <= 1
     assert all((session / view["image"]).exists() for view in manifest["views"])
@@ -70,7 +70,18 @@ def test_workspace_pad_is_symmetric():
     assert WORKSPACE_CROP_PAD_M == 0.025
 
 
-def test_manifest_v2_carries_bridge_geometry(tmp_path):
+def test_manifest_v3_carries_physical_and_dense_workspace(session):
+    _, manifest = export_multiview(session, max_frames=2)
+
+    assert manifest["version"] == 3
+    geometry = manifest["workspace_geometry"]
+    assert geometry["hard_source"] == "depth_observed_plane_component"
+    assert geometry["hard_contours_table_xy"]
+    assert geometry["dense_bounds_table_xy"] is not None
+    assert geometry["table_extent_xy"]
+
+
+def test_manifest_v3_carries_bridge_geometry(tmp_path):
     import json
     import numpy as np
     from multiview import export_multiview
@@ -83,7 +94,7 @@ def test_manifest_v2_carries_bridge_geometry(tmp_path):
     session = make_synthetic_session(tmp_path / "session", n_frames=10, seed=2)
     compute_table_frame(session)
     manifest_path, manifest = export_multiview(session, max_frames=3)
-    assert manifest["version"] == 2
+    assert manifest["version"] == 3
 
     frames = {rec.frame_id: rec for rec in SessionReader(session).frames()}
     from plane import load_table_frame

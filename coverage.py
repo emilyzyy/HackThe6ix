@@ -124,6 +124,58 @@ class CoverageGrid:
         holes = (padded == 0)[1:-1, 1:-1]
         return comp.astype(bool) | holes
 
+    def admissible_workspace_mask(self, min_seen=2, close_cells=5):
+        """Detector-independent outer region of the repeatedly seen plane.
+
+        Unlike :meth:`workspace_mask`, this deliberately has no peak-density
+        threshold.  It is an outer safety boundary for original-frame
+        inference, so a legitimate edge piece must not disappear merely
+        because the camera revisited the centre more often.  Sparse detached
+        plane/background patches are still removed by retaining only the
+        dominant connected component.
+        """
+        observed = self.observed_mask(min_seen).astype(np.uint8)
+        if not observed.any():
+            return observed.astype(bool)
+
+        kernel = np.ones((close_cells, close_cells), np.uint8)
+        pad = close_cells
+        closed = cv2.morphologyEx(
+            np.pad(observed, pad), cv2.MORPH_CLOSE, kernel
+        )[pad:-pad, pad:-pad]
+        _, labels, stats, _ = cv2.connectedComponentsWithStats(closed)
+        main = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        return labels == main
+
+    def admissible_workspace_contours_xy(
+        self, min_seen=2, close_cells=5, simplify_m=0.005
+    ):
+        """External admissible-workspace contours in table-frame metres."""
+        mask = self.admissible_workspace_mask(
+            min_seen=min_seen, close_cells=close_cells
+        ).astype(np.uint8)
+        if not mask.any():
+            return []
+
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        epsilon_px = max(0.0, float(simplify_m)) / self.cell_m
+        (x0, _), (y0, _) = self.bounds
+        result = []
+        for contour in sorted(contours, key=cv2.contourArea, reverse=True):
+            if epsilon_px:
+                contour = cv2.approxPolyDP(contour, epsilon_px, True)
+            points = contour.reshape(-1, 2)
+            if len(points) < 3:
+                continue
+            result.append([
+                [x0 + (float(x) + 0.5) * self.cell_m,
+                 y0 + (float(y) + 0.5) * self.cell_m]
+                for x, y in points
+            ])
+        return result
+
     def workspace_coverage_fraction(self, min_seen=2, close_cells=5):
         ws = self.workspace_mask(min_seen, close_cells)
         if not ws.any():
