@@ -91,3 +91,12 @@ def test_controller_stop_is_idempotent(tmp_path):
     s1 = ctl.stop()
     s2 = ctl.stop()
     assert s1["frames"] == s2["frames"] == 0
+
+
+def test_no_frames_warning_fires_only_when_stalled():
+    from capture import no_frames_warning
+    assert no_frames_warning(2.0, 0) is None          # too early to tell
+    assert no_frames_warning(30.0, 12) is None        # frames flowing
+    warning = no_frames_warning(6.0, 0)
+    assert warning is not None
+    assert "another" in warning and "Record3D" in warning

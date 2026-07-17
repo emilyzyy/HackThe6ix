@@ -144,10 +144,36 @@ class Record3DSource:
         self.session.disconnect()
 
 
+NO_FRAMES_WARN_AFTER_S = 5.0
+
+
+def no_frames_warning(elapsed_s, frame_count, warn_after_s=NO_FRAMES_WARN_AFTER_S):
+    """Connected-but-silent is a device-side state, not a code path we can fix.
+
+    The Record3D app streams to exactly ONE client: a second client connects
+    fine but never receives a frame. Same symptom when the app isn't actively
+    streaming (backgrounded, screen locked, or wedged after a client vanished).
+    """
+    if elapsed_s < warn_after_s or frame_count > 0:
+        return None
+    return (
+        f"\nWARNING: connected but no frames after {elapsed_s:.0f}s.\n"
+        "  - Is another client already connected? (demo-main.py or a stuck\n"
+        "    capture.py: check `ps aux | grep -E 'demo-main|capture.py'`)\n"
+        "  - Is the Record3D app in the foreground with USB streaming active\n"
+        "    and the screen unlocked? Toggle streaming off/on if it is.")
+
+
 def _status_loop(controller, stop_event, start_time):
+    warned = False
     while not stop_event.wait(2.0):
         s = controller.stats()
         elapsed = time.monotonic() - start_time
+        if not warned:
+            warning = no_frames_warning(elapsed, s["frames"])
+            if warning:
+                warned = True
+                print(warning)
         fps = s["frames"] / elapsed if elapsed > 0 else 0.0
         mb = s["bytes"] / (1024 * 1024)
         line = (f"\r[REC {int(elapsed) // 60:02d}:{int(elapsed) % 60:02d}] "
