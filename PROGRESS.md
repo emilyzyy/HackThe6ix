@@ -12,8 +12,8 @@ docs/superpowers specs+plans, and session artifacts instead.
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 — Bridge (identify from original crops) | manifest v2 + original-crop identification + debug overhaul + pad fix | IN PROGRESS |
-| 2 — Stud-count advisory tiebreaker | HoughCircles sanity check on least-oblique crop | not started |
+| 1 — Bridge (identify from original crops) | manifest v2 + original-crop identification + debug overhaul + pad fix | DONE — approved 2026-07-17 |
+| 2 — Stud-count advisory tiebreaker | HoughCircles advisory + second-chance identification | BUILT — at gate, awaiting approval |
 | 3 — Trained separator (yolo11n-seg) | dataset pipeline + Colab notebook + integration | not started; needs Emily (labeling, Colab) |
 
 ## Known constraints (do NOT)
@@ -31,7 +31,7 @@ drop-small-boxes; merge/push branches.
 | 20260716-234326 | 8 | 8 |
 | 20260717-005145 | 8 | 7 (known same-color merge — Phase 3 fixes) |
 
-## Phase 1 GATE results (2026-07-17) — AWAITING EMILY'S APPROVAL
+## Phase 1 GATE results (2026-07-17) — APPROVED
 
 Counts unchanged 7/8/8/7 ✓. Unknowns 9 → 4 ✓. Orange 1x8: fixed on 005145
 (was 1x10) ✓ and kept on 221544 ✓; regressed to unknown on 234326 and reads
