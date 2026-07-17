@@ -4,7 +4,12 @@ import pytest
 
 from plane import compute_table_frame
 from session_io import SessionReader
-from topdown import plane_homography, sharpness, export_topdown
+from topdown import (
+    _fill_invalid_with_median,
+    export_topdown,
+    plane_homography,
+    sharpness,
+)
 from transforms import intrinsics_to_K, project_points
 from tests.synthetic import make_synthetic_session, sample_texture
 
@@ -86,6 +91,27 @@ def test_best_frame_export(session):
     corr, checker_acc, _ = _truth_correlation(out, meta, session)
     assert corr > 0.85
     assert checker_acc > 0.75
+
+
+def test_export_defaults_to_best_frame(session):
+    _, meta = export_topdown(session, px_per_mm=1.0,
+                             out_name="topdown_default.jpg")
+    assert meta["mode"] == "best-frame"
+    assert meta["best_frame_id"] is not None
+
+
+def test_fill_invalid_with_median_table_color():
+    image = np.array([
+        [[10, 20, 30], [30, 40, 50]],
+        [[0, 0, 0], [0, 0, 0]],
+    ], dtype=np.uint8)
+    valid = np.array([[True, True], [False, False]])
+
+    filled = _fill_invalid_with_median(image, valid)
+
+    np.testing.assert_array_equal(filled[0], image[0])
+    np.testing.assert_array_equal(filled[1, 0], [20, 30, 40])
+    np.testing.assert_array_equal(filled[1, 1], [20, 30, 40])
 
 
 def test_export_crops_to_workspace(session):

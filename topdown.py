@@ -1,9 +1,9 @@
 """Phase 4: synthesize a high-res orthographic top-down image of the table.
 
-Default (ortho) mode: every output pixel takes its color from the best
-observation across all frames — score favors perpendicular, close, sharp
-views. Fallback --mode best-frame rectifies the single most top-down,
-least blurry frame via a plane homography.
+Default (best-frame) mode rectifies the single most top-down, least blurry
+frame via a plane homography. Optional --mode ortho builds a diagnostic
+composite where every output pixel takes its color from the best observation
+across all frames.
 
 Output feeds lego-cv:  sessions/<ts>/topdown.jpg  (+ topdown.json metadata)
 
@@ -85,6 +85,16 @@ def _rectify(rec, tf, origin_xy, px_per_m, out_wh):
     return warped, valid
 
 
+def _fill_invalid_with_median(image, valid):
+    """Fill pixels outside a rectified frame with its median valid color."""
+    if valid.all() or not valid.any():
+        return image.copy()
+    filled = image.copy()
+    fill_color = np.median(image[valid], axis=0).astype(image.dtype)
+    filled[~valid] = fill_color
+    return filled
+
+
 def _topdownness(rec, tf):
     """cos of the angle between the camera's forward axis and straight down."""
     fwd_world = rec.pose_mat[:3, :3] @ [0, 0, -1]
@@ -100,7 +110,7 @@ def _load_or_build_grid(session_dir, cell_m=0.005):
     return grid
 
 
-def export_topdown(session_dir, mode="ortho", px_per_mm=2.0,
+def export_topdown(session_dir, mode="best-frame", px_per_mm=2.0,
                    out_name="topdown.jpg", workspace=True, min_seen=2):
     session_dir = Path(session_dir)
     try:
@@ -137,7 +147,8 @@ def export_topdown(session_dir, mode="ortho", px_per_mm=2.0,
                    rec) for rec in frames]
         score, rec = max(scores, key=lambda s: s[0])
         best_frame_id = rec.frame_id
-        out_img, _ = _rectify(rec, tf, origin_xy, px_per_m, out_wh)
+        out_img, valid = _rectify(rec, tf, origin_xy, px_per_m, out_wh)
+        out_img = _fill_invalid_with_median(out_img, valid)
     elif mode == "ortho":
         out_img = np.zeros((out_wh[1], out_wh[0], 3), dtype=np.uint8)
         best_score = np.zeros((out_wh[1], out_wh[0]), dtype=np.float32)
@@ -168,7 +179,8 @@ def export_topdown(session_dir, mode="ortho", px_per_mm=2.0,
 def main():
     ap = argparse.ArgumentParser(description="Export a top-down table image.")
     ap.add_argument("session")
-    ap.add_argument("--mode", choices=["ortho", "best-frame"], default="ortho")
+    ap.add_argument("--mode", choices=["ortho", "best-frame"],
+                    default="best-frame")
     ap.add_argument("--px-per-mm", type=float, default=2.0)
     ap.add_argument("--out", default="topdown.jpg")
     ap.add_argument("--no-workspace", action="store_true",

@@ -55,13 +55,18 @@ own frame.
 python plane.py sessions/<ts>                 # fit table plane → table_frame.json
 python coverage.py sessions/<ts>              # replay → coverage %, coverage.npz
 python viewer.py sessions/<ts> [--fps 2]      # replay the coverage display
-python topdown.py sessions/<ts>               # ortho top-down → topdown.jpg
-python topdown.py sessions/<ts> --mode best-frame   # single-frame fallback
+python topdown.py sessions/<ts>               # clean best-frame → topdown.jpg
+python topdown.py sessions/<ts> --mode ortho --out topdown_composite.jpg
+                                               # stitched diagnostic composite
 ```
 
 `topdown.jpg` is cropped to the bounded workspace by default, keeping desk,
 laptop, and floor clutter out of the `lego-cv` hand-off. Use
 `python topdown.py <session> --no-workspace` for an uncropped diagnostic view.
+The default best-frame export fills pixels outside the rectified camera view
+with the median table color, so black warp borders cannot become false
+detections. The stitched orthographic mode remains available for diagnostics,
+but is not the detector input by default.
 `topdown.json` documents the
 mapping: pixel (u, v) ↔ table point `origin_xy + (u, v) / px_per_m`.
 
