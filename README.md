@@ -58,6 +58,7 @@ python viewer.py sessions/<ts> [--fps 2]      # replay the coverage display
 python topdown.py sessions/<ts>               # clean best-frame → topdown.jpg
 python topdown.py sessions/<ts> --mode ortho --out topdown_composite.jpg
                                                # stitched diagnostic composite
+python multiview.py sessions/<ts>              # clean coverage-aware view set
 ```
 
 `topdown.jpg` is cropped to the bounded workspace by default, keeping desk,
@@ -69,6 +70,11 @@ detections. The stitched orthographic mode remains available for diagnostics,
 but is not the detector input by default.
 `topdown.json` documents the
 mapping: pixel (u, v) ↔ table point `origin_xy + (u, v) / px_per_m`.
+
+For accurate inventory, `multiview.py` exports at most five complementary
+rectified images plus valid masks under `sessions/<ts>/multiview/`. All views
+share the same table canvas, so `lego-cv` can detect them independently and
+fuse duplicate observations without exposing the detector to stitch seams.
 
 ## No phone? Synthetic sessions
 
