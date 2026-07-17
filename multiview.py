@@ -25,8 +25,10 @@ from topdown import (
     _fill_invalid_with_median,
     _rectify,
     _topdownness,
+    plane_homography,
     sharpness,
 )
+from transforms import intrinsics_to_K, project_points
 
 
 @dataclass
@@ -92,6 +94,24 @@ def _canvas_geometry(session_dir: Path, px_per_m: float):
     return table_frame, origin_xy, size_wh
 
 
+def _raise_uv_per_cm(record, table_frame, origin_xy, px_per_m, size_wh):
+    """Image displacement (px) of a point 1 cm above the plane, at canvas
+    center — the direction identification crops must extend so raised piece
+    tops are not clipped in oblique views."""
+    W2T = table_frame["world_to_table"]
+    T2W = np.linalg.inv(W2T)
+    cx = origin_xy[0] + (size_wh[0] / 2) / px_per_m
+    cy = origin_xy[1] + (size_wh[1] / 2) / px_per_m
+    p0 = (T2W @ [cx, cy, 0.0, 1.0])[:3]
+    p1 = (T2W @ [cx, cy, 0.01, 1.0])[:3]
+    K = intrinsics_to_K(**record.intrinsics)
+    uv, valid = project_points(np.stack([p0, p1]), K, record.pose_mat,
+                               (10**9, 10**9))
+    if not valid.all():
+        return [0.0, 0.0]
+    return [float(uv[1][0] - uv[0][0]), float(uv[1][1] - uv[0][1])]
+
+
 def export_multiview(
     session_dir, px_per_mm: float = 2.0, max_frames: int = 5,
     edge_margin_px: int = 8,
@@ -125,6 +145,7 @@ def export_multiview(
         if selected else np.zeros_like(union)
     )
 
+    records = {record.frame_id: record for record in frames}
     output_dir = session_dir / "multiview"
     output_dir.mkdir(exist_ok=True)
     view_entries = []
@@ -135,17 +156,32 @@ def export_multiview(
         cv2.imwrite(str(image_path), candidate.image,
                     [cv2.IMWRITE_JPEG_QUALITY, 95])
         cv2.imwrite(str(mask_path), candidate.valid.astype(np.uint8) * 255)
+        record = records[candidate.frame_id]
+        homography = plane_homography(
+            intrinsics_to_K(**record.intrinsics), record.pose_mat,
+            table_frame["world_to_table"], px_per_m, origin_xy,
+        )
         view_entries.append({
             "frame_id": candidate.frame_id,
             "quality": candidate.quality,
             "image": str(image_path.relative_to(session_dir)),
             "mask": str(mask_path.relative_to(session_dir)),
             "size_wh": list(size_wh),
+            # Bridge geometry (manifest v2): canvas px -> original frame px,
+            # plus where the original pixels live and how a raised point
+            # displaces in that frame (identification crops must not clip
+            # piece tops in oblique views).
+            "homography": homography.tolist(),
+            "rgb": record.rgb,
+            "rgb_size": list(record.rgb_size),
+            "raise_uv_per_cm": _raise_uv_per_cm(
+                record, table_frame, origin_xy, px_per_m, size_wh
+            ),
         })
 
     canvas_pixels = union.size
     manifest = {
-        "version": 1,
+        "version": 2,
         "session_dir": str(session_dir.resolve()),
         "px_per_m": px_per_m,
         "origin_xy": list(origin_xy),

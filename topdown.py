@@ -23,8 +23,10 @@ from plane import compute_table_frame, load_table_frame
 from session_io import SessionReader
 from transforms import intrinsics_to_K
 
-WORKSPACE_CROP_PAD_X_M = 0.025
-WORKSPACE_CROP_PAD_Y_M = 0.005
+# Symmetric: the 5 mm vertical pad clipped piece tops on 20260717-005145.
+WORKSPACE_CROP_PAD_M = 0.025
+WORKSPACE_CROP_PAD_X_M = WORKSPACE_CROP_PAD_M  # kept for call sites
+WORKSPACE_CROP_PAD_Y_M = WORKSPACE_CROP_PAD_M
 
 
 def sharpness(img_bgr):
