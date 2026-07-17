@@ -1,5 +1,6 @@
 import json
 
+import cv2
 import numpy as np
 import pytest
 
@@ -50,3 +51,15 @@ def test_export_writes_versioned_common_canvas_manifest(session):
     assert all((session / view["image"]).exists() for view in manifest["views"])
     assert all((session / view["mask"]).exists() for view in manifest["views"])
     assert len({tuple(view["size_wh"]) for view in manifest["views"]}) == 1
+
+
+def test_export_fills_pixels_outside_each_valid_footprint(session):
+    _, manifest = export_multiview(
+        session, px_per_mm=1.0, max_frames=2, edge_margin_px=2
+    )
+    view = manifest["views"][0]
+    image = cv2.imread(str(session / view["image"]))
+    valid = cv2.imread(str(session / view["mask"]), cv2.IMREAD_GRAYSCALE) > 0
+
+    assert (~valid).any()
+    assert float(image[~valid].mean()) > 40.0

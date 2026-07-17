@@ -22,6 +22,7 @@ from topdown import (
     WORKSPACE_CROP_PAD_X_M,
     WORKSPACE_CROP_PAD_Y_M,
     _load_or_build_grid,
+    _fill_invalid_with_median,
     _rectify,
     _topdownness,
     sharpness,
@@ -111,6 +112,7 @@ def export_multiview(
         )
         if edge_margin_px:
             valid = cv2.erode(valid.astype(np.uint8), kernel).astype(bool)
+        image = _fill_invalid_with_median(image, valid)
         quality = _topdownness(record, table_frame) ** 2 * sharpness(
             record.load_rgb()
         )
