@@ -13,8 +13,8 @@ docs/superpowers specs+plans, and session artifacts instead.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 — Bridge (identify from original crops) | manifest v2 + original-crop identification + debug overhaul + pad fix | DONE — approved 2026-07-17 |
-| 2 — Stud-count advisory tiebreaker | HoughCircles advisory + second-chance identification | BUILT — at gate, awaiting approval |
-| 3 — Trained separator (yolo11n-seg) | dataset pipeline + Colab notebook + integration | not started; needs Emily (labeling, Colab) |
+| 2 — Stud-count advisory tiebreaker | HoughCircles advisory + second-chance identification | DONE — approved 2026-07-17 |
+| 3 — Trained separator (yolo11n-seg) | dataset pipeline + Colab notebook + integration | PLAN AWAITING APPROVAL; needs Emily (labeling, Colab) |
 
 ## Known constraints (do NOT)
 
@@ -58,7 +58,7 @@ Phase 1 deliverables, all committed on codex/option-a-color-detection:
   box-free mosaic + debug/crop_gallery.jpg + per-frame overlays.
 - Tests: lego-capture 61 passing, lego-cv 100 passing.
 
-## Phase 2 GATE results (2026-07-17) — AWAITING EMILY'S APPROVAL
+## Phase 2 GATE results (2026-07-17) — APPROVED
 
 Counts stable 7/8/8/7 ✓. Orange beam correct in 3 of 4 sessions
 (221544 ✓, 234326 ✓ fixed, 005145 ✓; 212422 still "2x8" — see below).
@@ -107,3 +107,9 @@ stud provenance in multiview_result.json. 118 tests passing (real 6x12 and
   read cached Brickognize candidates, tuned Hough on real crops before
   writing code. Key evidence: correct 1x8 existed in 234326's alternate
   views (f90 0.84); counts ~2x noisy on beams => 3x contradiction band.
+- 2026-07-17 (Phase 2 GATE): APPROVED by Emily. No further tuning against
+  212422/005145 residuals (view-count / merged-crop limits — Phase 3).
+- 2026-07-17 (Phase 3): plan written
+  (lego-cv/docs/superpowers/plans/2026-07-17-phase3-trained-separator.md),
+  awaiting Emily's approval before building. Holdout = 221544 (never tuned
+  against); 005145 in train by design (touching whites are the target).
