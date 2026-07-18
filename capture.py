@@ -77,7 +77,8 @@ class CaptureController:
             bgr = cv2.cvtColor(snap["rgb"], cv2.COLOR_RGB2BGR)
             rec = self.writer.add_frame(
                 bgr, snap["depth"], snap["coeffs"], snap["pose"],
-                device_type=snap["device_type"], timestamp=snap["timestamp"])
+                device_type=snap["device_type"], timestamp=snap["timestamp"],
+                confidence=snap.get("confidence"))
             for fn in self._frame_listeners:
                 fn(rec, snap)
 
@@ -120,15 +121,19 @@ class Record3DSource:
         # stream overwrites its buffers — pose and pixels must match exactly.
         rgb = np.asarray(self.session.get_rgb_frame()).copy()
         depth = np.asarray(self.session.get_depth_frame()).copy()
+        confidence = _copy_confidence_frame(self.session)
         pose = self.session.get_camera_pose()
         coeffs = self.session.get_intrinsic_mat()
         device_type = self.session.get_device_type()
         if device_type == DEVICE_TYPE_TRUEDEPTH:
             rgb = cv2.flip(rgb, 1)
             depth = cv2.flip(depth, 1)
+            if confidence is not None:
+                confidence = cv2.flip(confidence, 1)
         self.controller.submit({
             "rgb": rgb,
             "depth": depth,
+            "confidence": confidence,
             "coeffs": {"fx": coeffs.fx, "fy": coeffs.fy,
                        "cx": coeffs.tx, "cy": coeffs.ty},
             "pose": {"qx": pose.qx, "qy": pose.qy, "qz": pose.qz, "qw": pose.qw,
@@ -142,6 +147,15 @@ class Record3DSource:
 
     def disconnect(self):
         self.session.disconnect()
+
+
+def _copy_confidence_frame(session):
+    """Snapshot an optional confidence map before Record3D reuses it."""
+    getter = getattr(session, "get_confidence_frame", None)
+    if getter is None:
+        return None
+    confidence = np.asarray(getter()).copy()
+    return confidence if confidence.size else None
 
 
 NO_FRAMES_WARN_AFTER_S = 5.0

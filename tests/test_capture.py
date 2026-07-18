@@ -32,6 +32,7 @@ def _snapshot(i, t):
     return {
         "rgb": np.full((24, 32, 3), i, dtype=np.uint8),  # RGB order, flat
         "depth": np.full((6, 8), 0.5, dtype=np.float32),
+        "confidence": np.full((6, 8), 2, dtype=np.uint8),
         "coeffs": {"fx": 700.0, "fy": 700.0, "cx": 16.0, "cy": 12.0},
         "pose": {"qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0,
                  "tx": float(i), "ty": 0.0, "tz": 0.0},
@@ -58,6 +59,9 @@ def test_controller_pose_image_sync_and_throttle(tmp_path):
         baked = int(round(float(np.median(img))))
         # The pose stored with this frame must describe this exact frame.
         assert baked == int(rec.pose_qt["tx"])
+        np.testing.assert_array_equal(
+            rec.load_confidence(), np.full((6, 8), 2, dtype=np.uint8)
+        )
     # frame_ids are sequential regardless of source frame index.
     assert [f.frame_id for f in frames] == list(range(len(frames)))
 
@@ -100,3 +104,25 @@ def test_no_frames_warning_fires_only_when_stalled():
     warning = no_frames_warning(6.0, 0)
     assert warning is not None
     assert "another" in warning and "Record3D" in warning
+
+
+def test_copy_confidence_frame_handles_absent_empty_and_populated_getters():
+    from capture import _copy_confidence_frame
+
+    class Missing:
+        pass
+
+    class Empty:
+        def get_confidence_frame(self):
+            return np.array([], dtype=np.uint8)
+
+    class Populated:
+        def get_confidence_frame(self):
+            return np.full((2, 3), 2, dtype=np.uint8)
+
+    assert _copy_confidence_frame(Missing()) is None
+    assert _copy_confidence_frame(Empty()) is None
+    np.testing.assert_array_equal(
+        _copy_confidence_frame(Populated()),
+        np.full((2, 3), 2, dtype=np.uint8),
+    )

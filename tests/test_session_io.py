@@ -65,6 +65,41 @@ def test_jsonl_is_line_valid_json(tmp_path):
     assert (w.session_dir / rec["depth"]).exists()
 
 
+def test_writer_reader_round_trip_with_confidence(tmp_path):
+    rgb, depth, coeffs, pose = _fake_frame(0)
+    confidence = np.full(depth.shape, 2, dtype=np.uint8)
+    writer = SessionWriter(tmp_path / "sess")
+
+    rec = writer.add_frame(
+        rgb, depth, coeffs, pose, device_type=1, timestamp=1.0,
+        confidence=confidence,
+    )
+    writer.close()
+
+    loaded = SessionReader(tmp_path / "sess").frames()[0]
+    assert rec.confidence == "frames/00000.confidence.npy"
+    assert loaded.confidence == rec.confidence
+    np.testing.assert_array_equal(loaded.load_confidence(), confidence)
+
+
+def test_reader_accepts_historical_record_without_confidence(tmp_path):
+    rgb, depth, coeffs, pose = _fake_frame(0)
+    writer = SessionWriter(tmp_path / "sess")
+    writer.add_frame(
+        rgb, depth, coeffs, pose, device_type=1, timestamp=1.0
+    )
+    writer.close()
+    path = tmp_path / "sess" / "frames.jsonl"
+    payload = json.loads(path.read_text())
+    payload.pop("confidence", None)
+    path.write_text(json.dumps(payload) + "\n")
+
+    loaded = SessionReader(tmp_path / "sess").frames()[0]
+
+    assert loaded.confidence is None
+    assert loaded.load_confidence() is None
+
+
 def test_empty_session_summary(tmp_path):
     w = SessionWriter(tmp_path / "sess")
     summary = w.close()
