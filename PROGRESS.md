@@ -2,7 +2,8 @@
 
 Covers both repos (`lego-capture`, `lego-cv`), branch
 `codex/option-a-color-detection` in each. Primary failing acceptance case:
-`sessions/20260717-005145` (8 pieces; currently 7 — two white plates merge).
+`sessions/20260717-005145` (8 pieces; previously 7 because two white pieces
+merged) is now fixed at 8 separate fused instances.
 
 Note: the mission brief said to read CLAUDE.md first — no CLAUDE.md exists in
 either repo or $HOME as of 2026-07-17; state was read from git history,
@@ -14,7 +15,7 @@ docs/superpowers specs+plans, and session artifacts instead.
 |---|---|---|
 | 1 — Bridge (identify from original crops) | manifest v2 + original-crop identification + debug overhaul + pad fix | DONE — approved 2026-07-17 |
 | 2 — Stud-count advisory tiebreaker | HoughCircles advisory + second-chance identification | DONE — approved 2026-07-17 |
-| 3 — Trained separator (yolo11n-seg) | dataset pipeline + Colab notebook + integration | PLAN AWAITING APPROVAL; needs Emily (labeling, Colab) |
+| 3 — Trained separator (yolo11n-seg) | verified dataset + local MPS training + original-frame runtime + product evaluation | IMPLEMENTED — held-out `155228` remains 17/19 |
 
 ## Known constraints (do NOT)
 
@@ -92,6 +93,67 @@ count, 3x contradiction band, rescue/correct/demote, never overrides
 stud provenance in multiview_result.json. 118 tests passing (real 6x12 and
 1x8 crops as fixtures).
 
+## Phase 3 result (2026-07-17) — IMPLEMENTED AND EVALUATED
+
+Human review covered 71 original RGB frames and 1,157 individual-piece
+polygons. Whole-session splits contain 48 train, 15 validation, and 8 held-out
+white-table frames with no session leakage. The content-addressed dataset hash
+is `a751e0b2b456f867c62c6c50467ba3bc635869d4fe2706ac9ced31579a0c1a8c`.
+
+`yolo11n-seg` trained locally on Apple MPS for 100 epochs in 597 seconds. The
+installed checkpoint hash is
+`c792bdad68351b6930d6e67dd41282b497a7c06b05ee7107dbe416b2ff4ea689`.
+Frame-level mask mAP50-95 is 0.847 train-seen, 0.837 whole-session validation,
+and 0.877 on the held-out `white_round` environment. These are segmentation
+metrics, not inventory accuracy.
+
+Runtime behavior:
+- manifest v3 exports a detector-independent repeated table-plane workspace;
+- YOLO runs on projected crops of each original RGB frame, never on a stitched
+  mosaic;
+- masks retain source IDs, gate evidence, original/canvas geometry, and crop
+  provenance through table-coordinate fusion;
+- the capture exporter keeps at least three time-diverse confirmation views
+  when available;
+- boundary-only segmented evidence needs multi-view support, while a strong
+  complete singleton is still allowed where other views do not cover it;
+- identification uses isolated mask crops and may review a moderate result
+  with real padded context only when no neighboring mask enters that crop;
+- `session_cli.py --detector auto` prefers the installed verified segmenter and
+  writes physical-workspace/gate overlays plus the existing crop gallery.
+
+Product count results use manually inspected historical counts or the maximum
+human-verified source-frame count as the reference. Train-seen/historical:
+7/7 (`212422`), 8/8 (`221544`), 8/8 (`234326`), and 8/8 (`005145`). The target
+now separates both touching white pieces and identifies the orange piece as
+Brick 1 x 8 (0.895). All five untouched validation sessions are count-exact:
+14/14, 7/7, 23/23, 8/8, and 15/15; `152458` retains one `unknown brick`.
+
+Held-out `white_round` remains separate: `153942` is 11/11, while `155228` is
+17/19 with one unknown. Both have weak plane fits (0.587 and 0.705 inliers).
+The `155228` shortfall is classified as geometry plus fusion/count mismatch:
+per-view accepted-mask counts were 24, 19, and 18, but unstable projection and
+edge evidence yielded 17 fused records. It was not retuned after observing the
+held-out result.
+
+Reports and operating guidance:
+- `lego-cv/training/runs/product-evaluation/product-evaluation.{json,md}`
+- `lego-cv/docs/phase3-capture-quality.md`
+- `lego-cv/models/lego_seg.metadata.json`
+
+Exact next live command:
+
+```bash
+cd /Users/emily/lego-capture
+.venv/bin/python multiview.py sessions/<timestamp>
+
+cd /Users/emily/lego-cv
+.venv/bin/python session_cli.py \
+  /Users/emily/lego-capture/sessions/<timestamp> --detector auto
+```
+
+Latest verification at this gate: 66 capture tests and 197 CV tests pass.
+
 ## Log
 
 - 2026-07-17: Phase 1 plan written
@@ -111,5 +173,8 @@ stud provenance in multiview_result.json. 118 tests passing (real 6x12 and
   212422/005145 residuals (view-count / merged-crop limits — Phase 3).
 - 2026-07-17 (Phase 3): plan written
   (lego-cv/docs/superpowers/plans/2026-07-17-phase3-trained-separator.md),
-  awaiting Emily's approval before building. Holdout = 221544 (never tuned
-  against); 005145 in train by design (touching whites are the target).
+  superseded by the approved execution handoff and expanded session-safe plan.
+- 2026-07-17 (Phase 3 execution): 71 frames human-reviewed, 1,157 masks
+  imported, local MPS training completed, original-frame segmentation/fusion
+  integrated, target and whole-session validation regressions passed, and the
+  held-out white-table shortfall recorded without tuning on it.
