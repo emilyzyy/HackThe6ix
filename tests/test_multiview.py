@@ -10,8 +10,14 @@ from plane import compute_table_frame
 from tests.synthetic import make_synthetic_session
 
 
-def _candidate(frame_id, quality, valid, *, bearing=None, sharpness_score=None):
+def _candidate(
+    frame_id, quality, valid, *, bearing=None, ray=None,
+    sharpness_score=None
+):
     image = np.full((*valid.shape, 3), frame_id, dtype=np.uint8)
+    kwargs = {}
+    if ray is not None:
+        kwargs["viewing_ray_table_xyz"] = ray
     return ViewCandidate(
         frame_id,
         quality,
@@ -19,6 +25,7 @@ def _candidate(frame_id, quality, valid, *, bearing=None, sharpness_score=None):
         valid,
         camera_bearing_deg=bearing,
         sharpness_score=sharpness_score,
+        **kwargs,
     )
 
 
@@ -59,7 +66,7 @@ def test_selection_adds_time_diverse_confirmation_views_after_full_coverage():
     ) == 40
 
 
-def test_confirmation_selection_prefers_bearing_after_full_coverage():
+def test_confirmation_selection_falls_back_to_time_when_rays_unavailable():
     full = np.ones((3, 4), dtype=bool)
     candidates = [
         _candidate(0, 10.0, full, bearing=5.0, sharpness_score=10.0),
@@ -79,6 +86,32 @@ def test_circular_bearing_separation_wraps_at_360_degrees():
 
     assert circular_separation_deg(355.0, 5.0) == pytest.approx(10.0)
     assert circular_separation_deg(10.0, 190.0) == pytest.approx(180.0)
+
+
+def test_view_ray_separation_detects_obliquity_not_opposite_bearing():
+    from multiview import view_ray_separation_deg
+
+    near_top_a = (0.01, 0.0, -0.99995)
+    near_top_b = (-0.01, 0.0, -0.99995)
+    oblique = (0.70, 0.0, -0.714)
+
+    assert view_ray_separation_deg(near_top_a, near_top_b) < 2.0
+    assert view_ray_separation_deg(near_top_a, oblique) > 40.0
+
+
+def test_confirmation_selection_maximizes_minimum_ray_separation():
+    full = np.ones((3, 4), dtype=bool)
+    candidates = [
+        _candidate(0, 10.0, full, ray=(0.0, 0.0, -1.0)),
+        _candidate(10, 8.0, full, ray=(0.1, 0.0, -0.995)),
+        _candidate(20, 8.0, full, ray=(0.7, 0.0, -0.714)),
+    ]
+
+    selected = select_covering_views(
+        candidates, max_frames=2, min_frames=2
+    )
+
+    assert [item.frame_id for item in selected] == [0, 20]
 
 
 @pytest.fixture
@@ -104,9 +137,9 @@ def test_export_writes_versioned_common_canvas_manifest(session):
     assert all((session / view["mask"]).exists() for view in manifest["views"])
     assert len({tuple(view["size_wh"]) for view in manifest["views"]}) == 1
     assert manifest["selection"]["strategy"] == (
-        "coverage_then_angle_diverse_quality"
+        "coverage_then_view_ray_diverse_quality"
     )
-    assert "pairwise_bearing_separation" in manifest["selection"]
+    assert "pairwise_view_ray_separation" in manifest["selection"]
     assert all(view["topdownness"] is not None for view in manifest["views"])
     assert all(view["sharpness"] is not None for view in manifest["views"])
     assert all(
@@ -117,6 +150,12 @@ def test_export_writes_versioned_common_canvas_manifest(session):
         0.0 <= view["camera_bearing_deg"] < 360.0
         for view in manifest["views"]
     )
+    assert all(
+        len(view["viewing_ray_table_xyz"]) == 3
+        for view in manifest["views"]
+    )
+    assert all(0.0 <= view["view_tilt_deg"] < 90.0
+               for view in manifest["views"])
 
 
 def test_export_fills_pixels_outside_each_valid_footprint(session):
