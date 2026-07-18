@@ -29,7 +29,7 @@ per-view evidence rather than being silently forced.
 
 Latest verified test totals before this handoff:
 
-- lego-capture: **79 passed**
+- lego-capture: **80 passed**
 - lego-cv: **252 passed**
 - One non-failing Starlette deprecation warning may appear in the CV suite.
 

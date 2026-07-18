@@ -251,7 +251,11 @@ def select_covering_views(
         choose_confirmation = reserve_confirmation or (
             low_coverage_gain and len(selected) < min_frames
         )
-        if low_coverage_gain and not choose_confirmation:
+        if (
+            low_coverage_gain
+            and not choose_confirmation
+            and not target_reachable
+        ):
             break
         if choose_confirmation:
             # Once meaningful coverage gain is exhausted, choose a clean view

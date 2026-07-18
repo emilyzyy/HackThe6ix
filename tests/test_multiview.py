@@ -206,6 +206,34 @@ def test_selection_preserves_a_feasible_coverage_pair_over_greedy_overlap():
     assert {item.frame_id for item in selected[-2:]} == {4, 5}
 
 
+def test_selection_keeps_low_gain_final_view_that_reaches_target():
+    def span(start, stop):
+        mask = np.zeros((1, 1000), dtype=bool)
+        mask[:, start:stop] = True
+        return mask
+
+    candidates = [
+        _candidate(1, 10.0, span(0, 700)),
+        _candidate(2, 9.0, span(700, 900)),
+        _candidate(3, 8.0, span(900, 980)),
+        _candidate(4, 7.0, span(980, 994)),
+        _candidate(5, 10.0, span(994, 995)),
+        _candidate(6, 1.0, span(995, 996)),
+        _candidate(7, 1.0, span(996, 997)),
+        _candidate(8, 1.0, span(997, 998)),
+        _candidate(9, 1.0, span(998, 999)),
+        _candidate(10, 1.0, span(999, 1000)),
+    ]
+
+    selected = select_covering_views(
+        candidates, max_frames=5, min_frames=3
+    )
+    covered = np.logical_or.reduce([item.valid for item in selected])
+
+    assert covered.mean() == pytest.approx(0.995)
+    assert selected[-1].frame_id == 5
+
+
 @pytest.fixture
 def session(tmp_path):
     out = tmp_path / "session"
