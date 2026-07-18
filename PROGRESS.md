@@ -427,6 +427,70 @@ labelled-session evidence only, not proof across all lighting. No additional
 session has human color truth yet, so the requested cross-session no-confusion
 gate remains unmeasured rather than claimed.
 
+## Phase 8 pre-latency reliability (2026-07-18) — IMPLEMENTED, REAL-SESSION REVIEW PENDING
+
+Scope deliberately excludes Brickognize throttling/concurrency and DINO or an
+exemplar bank. It addresses the approved palette, duplicate-mask, and
+piece-specific crop-quality work first.
+
+Implementation:
+- The full 24-color reference palette remains unchanged for per-view evidence,
+  diagnostics, and fusion hints. Final inventory aggregation now uses a
+  separate physical 12-color profile: red, orange, yellow, beige, brown,
+  green, dark green, blue, white, light gray, dark gray, and black. Final
+  ambiguity can only contain two names from that profile. Provenance records
+  the active `output_palette`.
+- Accepted detections from one source view now undergo conservative mask-level
+  duplicate suppression before fusion. A lower-confidence mask is retained in
+  the audit output but gated as `duplicate_suppressed` only when mask IoU is at
+  least 0.65, smaller-mask containment is at least 0.85, mask area ratio is at
+  least 0.70, and original-box IoU is at least 0.60. Different views and
+  overlapping boxes with disjoint masks are protected by regression tests.
+- Identification view ranking now measures the 80th-percentile absolute
+  Laplacian response inside an eroded piece mask, avoiding an artificial score
+  from the segmentation edge. The ranking combines local focus, crop size,
+  view tilt, segmentation confidence, original-frame fit, and the legacy
+  whole-view score. The exact factors are persisted as
+  `identification_focus` and `identification_quality`.
+- If all Brickognize observations remain below 0.70, production identity stays
+  unknown. The gallery/provenance now selects the strongest weak observation
+  and adds `best_weak_view_selected`; no threshold was lowered.
+
+Run-scoped validation (`20260718-130245`):
+- Output is under
+  `sessions/20260718-130245/analysis-runs/pre-latency-reliability/`; normal
+  session artifacts were not rewritten.
+- Final output contains no excluded shade name. It contains approved profile
+  names plus three `ambiguous(dark green/green)` results; both sides of that
+  ambiguity are in the physical profile. This is a candidate-space guarantee,
+  not color-accuracy evidence because this session has no human color truth.
+- Eight lower-confidence same-view masks were marked
+  `duplicate_suppressed`, paired with stronger masks at original-box IoU
+  0.647-0.706. Fused count falls from 60 to 56.
+- The user-confirmed duplicate white Plate 1 x 6 formerly represented by
+  pieces 003 and 004 is now one component with observations from frames 503,
+  12, and 306 and final ID `3666` Plate 1 x 6.
+- Two additional clear before/after consolidation candidates are former pairs
+  013/014 (both Brick 1 x 2) and 046/047 (both unknown). The fourth count
+  reduction involves reassociation in the dense red cluster around canvas
+  y=710. These three are not claimed correct until compared with the physical
+  mat; the gate overlays preserve every suppressed source ID for review.
+- The upside-down dark-gray Brick 2 x 2 stays unknown, but its displayed weak
+  evidence improves from frame 503 score 0.546 to frame 12 score 0.682, with
+  `3003` Brick 2 x 2 still the top candidate and
+  `best_weak_view_selected` recorded. The upside-down white Brick 2 x 2 stays
+  unknown at 0.640; it already used its strongest available view.
+- Seven of ten unknowns selected more useful weak-review evidence. Unknown
+  count remains ten, as intended by the unchanged safety threshold.
+- The validation took 192.76 seconds, but 165.00 seconds was the opt-in
+  diagnostic model-fit path triggered by `--analysis-dir`; cached
+  identification took 9.45 seconds. This timing is not the normal demo path
+  and is not evidence that production latency has been fixed.
+
+Regression gate: 302 CV tests and 80 capture tests pass. Plan and red/green
+steps are in
+`docs/superpowers/plans/2026-07-18-pre-latency-reliability.md`.
+
 ## Log
 
 - 2026-07-17: Phase 1 plan written
