@@ -22,10 +22,15 @@ The current model is single-class **lego_piece**. YOLO separates instances; it d
 
 The target regression session, **20260717-005145**, now returns all eight physical pieces. The touching white pieces remain separate, the large gray Plate 6 x 12 is found, and the orange item is identified as Brick 1 x 8 with score 0.895.
 
+The newer reliability regression, **20260717-233252**, now returns all 13
+physical components from five selected views. Ten of 13 part identities are
+correct when color is ignored; the three residual identity failures retain
+per-view evidence rather than being silently forced.
+
 Latest verified test totals before this handoff:
 
-- lego-capture: **66 passed**
-- lego-cv: **197 passed**
+- lego-capture: **77 passed**
+- lego-cv: **249 passed**
 - One non-failing Starlette deprecation warning may appear in the CV suite.
 
 ## 2. Repositories and current state
@@ -706,6 +711,46 @@ These are regression results, not generalization evidence.
 |---|---:|---:|---:|---|
 | 20260717-153942 | 11 | 11 | 0 | weak geometry risk |
 | 20260717-155228 | 19 | 17 | 1 | weak geometry + fusion mismatch |
+
+### 20260717-233252 reliability regression (2026-07-18)
+
+This 13-piece session validates the hard-workspace, true-view-ray, evidence,
+and training-attribution work. The previous exporter selected three nearly
+top-down views over a 340 x 430 dense-core canvas and produced 12 inventory
+components. The new 961 x 868 canvas spans the approximately 48.3 x 43.5 cm
+hard admissible workspace and includes the previously omitted orange 1x8.
+
+Selected frames are coverage anchors 14/54/35 and oblique confirmations
+263/231. The confirmations are 30.3 and 56.8 degrees from top-down;
+confirmation-involving ray separations range from 37.9 to 77.7 degrees. The
+five-view cap is mathematically incompatible with the original 99.5% union
+target on this recording: the best five coverage-only candidates reach about
+98.7%, and nine are required for 99.5%. The selected 3+2 set reaches 97.50% of
+the recorded union and honestly serializes `coverage_complete: false`.
+
+YOLO sees 13 accepted masks in frame 14. Across all selected views it produces
+57 accepted detections, which now fuse to exactly 13 components. A prior 14th
+component was not a hallucinated mask: two different raised pieces overlapped
+after oblique table-plane projection and cross-matched. Confirmation-only
+groups are now atomically reassigned to unambiguous coverage anchors.
+
+Part-ID result, ignoring the explicitly out-of-scope color field:
+
+- 10/13 correct.
+- Side blue 2x4 remains Plate 2x4: two reviewed views vote Plate, one votes
+  Brick.
+- Side white 2x2 remains Brick 1x2: one reviewed view votes 1x2 and one votes
+  2x2, recorded as `identity_view_disagreement`.
+- Black 2x4 remains unknown: all reviewed Brickognize results are below the
+  identity threshold, while metric and stud evidence correctly preserve the
+  conflict rather than inventing an answer.
+- Black 2x12 remains part 2445, Plate 2x12; stud evidence cannot overwrite it.
+
+Attribution for this session is capture pass -> selection pass -> segmentation
+pass -> fusion pass after repair -> identification/evidence for the three
+residuals. It is not evidence for more YOLO training crops. Historical depth
+has no confidence sidecars, so height is recorded as shadow-only/unavailable;
+new captures persist confidence when Record3D supplies it.
 
 ## 8. Exact runbook
 

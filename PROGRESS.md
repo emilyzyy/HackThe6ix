@@ -1,9 +1,9 @@
 # LEGO Scanner — Progress
 
 Covers both repos (`lego-capture`, `lego-cv`), branch
-`codex/option-a-color-detection` in each. Primary failing acceptance case:
-`sessions/20260717-005145` (8 pieces; previously 7 because two white pieces
-merged) is now fixed at 8 separate fused instances.
+`codex/option-a-color-detection` in each. The latest reliability regression,
+`sessions/20260717-233252`, now produces all 13 physical components; the older
+`005145` touching-white-piece regression remains fixed at 8/8.
 
 Note: the mission brief said to read CLAUDE.md first — no CLAUDE.md exists in
 either repo or $HOME as of 2026-07-17; state was read from git history,
@@ -17,6 +17,7 @@ docs/superpowers specs+plans, and session artifacts instead.
 | 2 — Stud-count advisory tiebreaker | HoughCircles advisory + second-chance identification | DONE — approved 2026-07-17 |
 | 3 — Trained separator (yolo11n-seg) | verified dataset + local MPS training + original-frame runtime + product evaluation | IMPLEMENTED — held-out `155228` remains 17/19 |
 | 4 — Reliability-gated ID evidence | acceptance worksheet + dark studs + metric silhouettes + angle diversity + dimension flags | IMPLEMENTED 2026-07-17 — color unchanged |
+| 5 — Inventory reliability | hard workspace + true view rays + conflict-aware evidence + confidence/depth shadow data + failure attribution | IMPLEMENTED 2026-07-18 — `233252` is 13/13 components; 3 part IDs remain ambiguous/wrong |
 
 ## Known constraints (do NOT)
 
@@ -208,6 +209,57 @@ Split-safe regression gate:
   used for tuning.
 - Evaluation artifact:
   `lego-cv/training/runs/reliability-evidence-20260717/` (gitignored).
+
+## Phase 5 inventory reliability (2026-07-18) — IMPLEMENTED
+
+Scope deliberately excludes color correction, cosmetic live-3D rendering,
+Brickognize latency tuning, and unproven segmentation retraining.
+
+Capture and selection changes:
+- The export canvas now uses the hard admissible workspace, not the dense depth
+  core. On `233252` it grew from 340 x 430 to 961 x 868 pixels and spans roughly
+  48.3 x 43.5 cm.
+- Candidate coverage is evaluated at 250 px/m; only the selected views are
+  rectified at the final 2000 px/m scale.
+- Selection uses normalized 3D camera-to-workspace rays. Frames 14, 54, and 35
+  are coverage anchors; frames 263 and 231 are oblique confirmations at 30.3
+  and 56.8 degrees tilt. Confirmation-involving ray separation is at least
+  37.9 degrees and reaches 77.7 degrees.
+- The five-view cap cannot satisfy the original 99.5% target on this recording.
+  The best five coverage-only candidates reach about 98.7% of the recorded
+  valid-pixel union, while nine are required for 99.5%. The selected 3+2
+  coverage/confirmation set reaches 97.50% of the recorded union (93.13% of the
+  hard workspace); the manifest records `coverage_complete: false` and the
+  insufficiency reason instead of claiming success.
+- New Record3D captures persist optional confidence sidecars. Historical frames
+  remain readable; `233252` predates the sidecars, so height evidence is
+  correctly serialized as shadow-only/unavailable and never changes identity.
+
+Identification and regression result:
+- Fusion initially produced a false 14th component: an oblique blue detection
+  and an oblique white detection cross-matched because table-plane projection
+  shifts raised bricks. A confirmation-only reassignment pass now attaches each
+  observation to its unambiguous coverage anchor while preserving one
+  observation per view and leaving ambiguous groups untouched.
+- `233252` now produces exactly 13 components from 57 accepted detections across
+  five views. Frame 14 alone visibly contains 13 correct masks, so this session
+  is not a segmentation-training case.
+- Ten of 13 part identities are correct when color is ignored. Residuals are:
+  side blue 2x4 -> Plate 2x4 (two Plate votes, one Brick vote); side white 2x2
+  -> Brick 1x2 (one 1x2 vote, one 2x2 vote, explicitly flagged view
+  disagreement); black 2x4 -> unknown (all reviewed Brickognize scores below
+  threshold despite a high-reliability approximately 2x4 metric footprint and
+  medium eight-stud evidence).
+- The black 2x12 remains part `2445`, Plate 2x12. Stud evidence can no longer
+  demote or overwrite stronger identity/metric evidence, and the upside-down
+  blue 2x2's circle detections remain non-corrective.
+- Failure attribution is therefore: capture pass -> selection pass ->
+  segmentation pass -> fusion pass after repair -> identification/evidence for
+  the three residuals. Additional YOLO training crops are not warranted by this
+  regression.
+
+Latest verification: 77 capture tests and 249 CV tests pass; the CV suite has
+one pre-existing Starlette deprecation warning.
 
 ## Log
 
