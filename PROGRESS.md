@@ -491,6 +491,65 @@ Regression gate: 302 CV tests and 80 capture tests pass. Plan and red/green
 steps are in
 `docs/superpowers/plans/2026-07-18-pre-latency-reliability.md`.
 
+## Phase 9 exact batch inventory review (2026-07-18) — IMPLEMENTED, HUMAN REVIEW PENDING
+
+The CV scanner and the partner's model-generation inventory are now disjoint.
+Twelve physically isolated batches containing 780 counted pieces were captured.
+The scanner supplies draft detections and part/color suggestions; Emily's
+confirmation is the source of truth for the fixed partner inventory.
+
+Implementation:
+- Review-draft mode keeps production scanning unchanged but performs only one
+  best-crop Brickognize request per fused component, with 12 bounded workers,
+  zero fixed inter-request delay, and existing retry/backoff behavior.
+- Brickognize candidate render URLs are preserved. Review bundles cache their
+  part renders and export up to three masked original-frame crops per component.
+- A local FastAPI verifier shows a numbered segmentation overview, candidate
+  renders, editable part ID/name, the physical 12-color selector, segmentation
+  disposition, and an explicit include/exclude decision. Every mutation is
+  atomically autosaved.
+- Exact-count reconciliation distinguishes included physical pieces, excluded
+  accidental physical pieces, zero-count duplicate detections, and manually
+  added missed pieces. Merged/incomplete/unconfirmed rows block locking.
+- Aggregate JSON/CSV export is refused until all twelve sessions are reconciled
+  and locked. Only included human-confirmed rows enter the final inventory.
+- Confirmed identity/color rows may become future exemplar truth. A mask is
+  eligible for segmentation training only when explicitly marked correct.
+
+Generated workspace:
+`/Users/emily/lego-capture/inventory-review-20260718/workspace.json`.
+The verifier runs at `http://127.0.0.1:8765/` while its local Uvicorn process is
+active. All generated session outputs are run-scoped beneath
+`sessions/<id>/analysis-runs/inventory-annotation-v1/`.
+
+Draft count evidence (physical -> fused draft):
+- `161438`: 48 -> 45 (-3)
+- `161851`: 74 -> 91 (+17)
+- `162215`: 83 -> 91 (+8)
+- `162458`: 64 -> 64
+- `162834`: 88 -> 89 (+1)
+- `163214`: 85 -> 86 (+1)
+- `163451`: 63 -> 64 (+1)
+- `163723`: 67 -> 70 (+3)
+- `164119`: 86 -> 88 (+2)
+- `164730`: 57 -> 57
+- `165118`: 39 -> 39
+- `165402`: 26 -> 26
+
+The drafts total 810 components versus 780 physical pieces. This is not an
+inventory result: it is the workload presented for human reconciliation. The
+large positive deltas in `161851` and `162215` likely contain duplicate tracks;
+the negative delta in `161438` requires three manual missed-piece entries or a
+targeted rescan. Exact draft counts can still conceal a duplicate paired with a
+miss, so every row remains review-required.
+
+Verification: all twelve workspace entries and every referenced crop/mask asset
+validated beneath its run directory; JavaScript syntax passed; live-browser
+checks passed for all-session loading, numbered-shape selection, next/previous
+navigation, candidate renders, color controls, and session switching. Regression
+gates are 322 CV tests and 83 capture tests passing. The sole CV warning is the
+pre-existing FastAPI/Starlette `httpx` deprecation warning.
+
 ## Log
 
 - 2026-07-17: Phase 1 plan written
