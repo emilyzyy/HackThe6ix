@@ -295,6 +295,64 @@ Thresholds were not tuned from this inventory. The rescue uses the existing
 not count as full distinct-frame votes. The run-scoped candidate artifacts are
 under `sessions/20260717-233252/analysis-runs/phase1-weak-rescue/`.
 
+## Phase 6B calibrated silhouette fitting (2026-07-18) — DIAGNOSTIC ONLY
+
+This phase implemented calibrated multi-view cuboid fitting for exact regular
+`Brick N x M` and `Plate N x M` candidates. It is opt-in through
+`--analysis-dir`, runs only after final identity arbitration, and cannot feed
+dimension consistency, stud advice, or production identity selection. A
+diagnostic run writes its inventory, result JSON, gallery, and overlays beneath
+the supplied directory without rewriting the session's normal outputs.
+
+Calibration and synthetic gates:
+- ARKit pose/intrinsics projection agrees with the stored frame-14 table-plane
+  homography to `1e-5` pixels.
+- Synthetic masks separate side-resting Brick 2 x 4 from Plate 2 x 4 in both
+  directions, Brick 2 x 2 from Brick 1 x 2, tolerate at most one corrupt
+  nonessential auxiliary view, never trim the sole oblique view, and return low
+  reliability without an oblique view.
+- The first real implementation was rejected on runtime: it produced no
+  diagnostic instance after nearly three minutes. TDD-bounded original-mask
+  crops reduced the final completed 13-piece primary run to 130.11 seconds. This is
+  still an offline diagnostic and adds zero work to a normal scan.
+
+Primary session result (`20260717-233252`):
+- Exactly 13 components were retained and all production identities remained
+  byte-for-byte equal to the promoted Phase 6A run: 11/13 exact IDs remain
+  correct, Plate 2 x 12 remains `2445`, and the black 2 x 4 remains rescued as
+  `3001`.
+- The side blue target at `[288, 312, 359, 353]` prefers `3001` Brick 2 x 4
+  with loss 0.0820 over `3020` Plate 2 x 4 at 0.1631 (margin 0.0811).
+- The side white target at `[386, 353, 430, 391]` prefers `3003` Brick 2 x 2
+  with loss 0.1779 over `3004` Brick 1 x 2 at 0.2939 (margin 0.1161).
+- Protected comparison anchors also prefer their existing identities: `2445`
+  over `3034`, `3001` over `3010`, and `3003` over `3022`.
+- Diagnostic-quality disagreement sets `diagnostic_model_disagreement` and
+  recommends review without changing the exact ID. Exactly the two residual
+  targets are recommended for review, below the seven-piece usability limit,
+  rather than forcing a guess.
+
+Historical gate:
+- `20260717-202103`: the known side-facing Brick 2 x 3 prefers `3002` over the
+  misleading `3622` by 0.0770. Plate `2445` has no second accepted/weak regular
+  candidate and is correctly unavailable rather than force-compared.
+- `20260717-005145`: known Plate 6 x 12 prefers `3028` over `2445` by 0.1627;
+  Brick 1 x 8 has no second regular candidate and is unavailable.
+- `20260716-221544`: known Plate 6 x 12 prefers `3028` over `3033` by 0.0409;
+  Brick 1 x 8 again has no second regular candidate and is unavailable.
+- Camera-pose/table-frame derivation shows the legacy optical tilts are only
+  0.6-2.1, 2.6-6.8, and 7.5-11.4 degrees respectively. These captures contain
+  no mandatory >=30-degree oblique anchor, so all historical comparisons are
+  low-reliability even though each available comparison prefers its known
+  family.
+
+Promotion decision: the diagnostic is a real investigative improvement and
+correctly ranks both primary residuals, but the approved historical obliquity
+gate is not satisfied. Geometry therefore remains diagnostic-only; no Phase 3
+identity-arbitration plan was written and the two production misreads were not
+silently relabelled. Run-scoped evidence is under each evaluated session's
+`analysis-runs/model-fit-diagnostic/` directory.
+
 ## Log
 
 - 2026-07-17: Phase 1 plan written
