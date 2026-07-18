@@ -19,6 +19,14 @@ full suites, preserves all ten correct identities in the primary regression,
 and does not introduce a demonstrated regression in labelled historical checks.
 Geometry that fails calibration or separation checks remains diagnostic-only.
 
+A wrong exact identity is worse than an explicit `unknown` or `review_needed`
+result because only uncertain pieces are guaranteed to reach the final user
+review. When evidence does not justify an exact part, arbitration must prefer
+uncertainty. The target workflow should require manual review of no more than
+seven components per session in the primary and labelled historical acceptance
+set. This review budget is an acceptance metric, not permission to force weak
+identities: exceeding it is reported as a failed usability gate.
+
 ## Reproduced Baseline
 
 - `lego-capture`: 80 tests pass.
@@ -195,6 +203,8 @@ appearance and returns ambiguous. Depth never votes.
 
 Every outcome records the previous and final identities, action, supporting
 categories, contradictions, alternatives, and a human-readable reason.
+An exact winner below the calibrated reliability or margin requirements is
+serialized as `unknown` or `review_needed`, even when it is the numerical leader.
 
 ## Artifact Safety
 
@@ -230,6 +240,10 @@ On `20260717-233252`:
 5. The black target becomes 3001 through bounded weak rescue.
 6. Plate 2445 remains Plate 2 x 12.
 7. Every target has inspectable evidence and overlays.
+8. No incorrect exact identity is preserved merely to avoid review.
+9. The number of `unknown`, ambiguous, or `review_needed` components requiring
+   final user review is at most seven; a larger queue fails the usability gate
+   and is reported without forcing additional exact identities.
 
 Historical labelled anchors include the known side-facing regular brick and
 black Plate 2 x 12 in `20260717-202103`, the known upright Brick 1 x 8 and Plate
@@ -253,7 +267,9 @@ must state that it was not a reliable improvement.
 
 The work is complete only when promoted changes preserve 13 components, all ten
 baseline-correct identities, both full test suites, and evidence beyond the
-three target labels. Merely changing the three target outputs is insufficient.
+three target labels. The acceptance report must separately state exact-ID
+errors and review-queue size. Merely changing the three target outputs or
+reducing review by accepting weak guesses is insufficient.
 
 ## Primary References
 
