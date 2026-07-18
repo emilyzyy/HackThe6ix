@@ -353,6 +353,37 @@ identity-arbitration plan was written and the two production misreads were not
 silently relabelled. Run-scoped evidence is under each evaluated session's
 `analysis-runs/model-fit-diagnostic/` directory.
 
+## Phase 7A color evidence and ground-truth gate (2026-07-18) — WAITING ON EMILY
+
+This phase deliberately changes no color decision. It records the evidence
+needed to locate each failure before correction thresholds are designed.
+
+- Every fused component now serializes per-view raw and white-patch-corrected
+  RGB, corrected Lab, the top three palette matches with CIEDE2000 distances
+  and best/second margin, luminance quantiles and clip fractions, background
+  neutrality, segmentation/view metadata, and diagnostic shadow/specular,
+  oblique, boundary, and low-confidence flags.
+- The current final provenance remains explicitly
+  `strategy: unweighted_name_vote`; the color output is not represented as a
+  new decision system yet.
+- `session_cli.py --color-worksheet --analysis-dir <run>` writes one crop per
+  fused component plus CSV and Markdown worksheets beneath the run directory.
+  Color-only worksheet runs skip the opt-in 130-second model-fit diagnostic.
+- `python -m training.color_acceptance <worksheet.csv>` scores only rows with a
+  human-filled truth color and reports exact accuracy, ambiguity containing the
+  truth, confident wrongs, per-color results, and the confusion summary.
+- The primary run contains 13 blank-truth worksheet rows, 13 thumbnails, and
+  56 complete per-view color-evidence records. Its component boxes, part IDs,
+  colors, and inventory are unchanged from the promoted Phase 6A baseline.
+- Run-scoped artifact:
+  `sessions/20260717-233252/analysis-runs/color-phase1-evidence/`.
+- Verification at this gate: `lego-capture` 80 tests pass; `lego-cv` 285 tests
+  pass with the existing Starlette warning.
+
+Next physical gate [EMILY]: fill the `truth_color` column in
+`color-labels/color_worksheet.csv` for `233252`. One or two additional labelled
+session worksheets are required before changing correction or aggregation.
+
 ## Log
 
 - 2026-07-17: Phase 1 plan written
