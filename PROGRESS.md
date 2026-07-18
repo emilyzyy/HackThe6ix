@@ -353,7 +353,7 @@ identity-arbitration plan was written and the two production misreads were not
 silently relabelled. Run-scoped evidence is under each evaluated session's
 `analysis-runs/model-fit-diagnostic/` directory.
 
-## Phase 7A color evidence and ground-truth gate (2026-07-18) — WAITING ON EMILY
+## Phase 7A color evidence and ground-truth gate (2026-07-18) — COMPLETE
 
 This phase deliberately changes no color decision. It records the evidence
 needed to locate each failure before correction thresholds are designed.
@@ -380,9 +380,52 @@ needed to locate each failure before correction thresholds are designed.
 - Verification at this gate: `lego-capture` 80 tests pass; `lego-cv` 285 tests
   pass with the existing Starlette warning.
 
-Next physical gate [EMILY]: fill the `truth_color` column in
-`color-labels/color_worksheet.csv` for `233252`. One or two additional labelled
-session worksheets are required before changing correction or aggregation.
+Emily supplied all 13 truth labels for `233252`. The measured Phase 1 baseline
+is 8/13 exact (61.5%), 8/13 acceptable, and five confidently wrong colors.
+
+## Phase 7B trustworthy color decision (2026-07-18) — PROMOTED ON PRIMARY LABELLED SESSION
+
+Root cause and implementation:
+- Raw samples already put every named failure in the correct broad family. The
+  legacy white-patch step was the primary entry point for all five confident
+  errors: the warm table reference was forced toward white, boosting blue and
+  clipping bright channels. Palette shade boundaries and repeated unweighted
+  votes were secondary contributors.
+- Session-level, brightness-preserving gray-world correction now replaces the
+  exposure-forcing decision path. It verifies reference brightness/chroma/view
+  consistency and falls back to raw when the table is not a defensible neutral
+  reference. Per-object safeguards reject chroma amplification, excessive hue
+  shift, and needless correction of strongly chromatic samples. The local
+  OpenCV lacks `cv2.xphoto`, so the equivalent channel gains are implemented
+  directly without changing OpenCV distributions.
+- Low-chroma evidence is restricted to the neutral palette. Chromatic evidence
+  excludes neutrals and uses hue-first scoring. Small aggregate margins and
+  shade/exposure overlaps emit `ambiguous(colorA/colorB)` rather than a
+  confident error.
+- Final color aggregation is quality weighted; shadowed, specular, oblique,
+  boundary, and low-confidence observations are down-weighted with the exact
+  weights/reasons persisted. The old per-view name remains only as a fusion
+  hint, so color changes cannot alter the established geometry association.
+
+Primary labelled gate (`20260717-233252`):
+- Exactly 13 components, all 13 boxes, and all 13 part IDs match Phase 1.
+- Exact color accuracy rises from 8/13 (61.5%) to 9/13 (69.2%). Acceptable
+  correct-or-ambiguity-containing-truth rises from 8/13 to 13/13 (100%).
+  Confident wrong colors fall from five to zero.
+- Dark gray and yellow are now exact. Both black pieces are
+  `ambiguous(black/dark gray)`, green is `ambiguous(dark green/green)`, and
+  orange is conservatively `ambiguous(orange/red)`. All prior blue and white
+  successes remain exact.
+- The final run has 56 complete weighted per-view provenance records. It is at
+  `sessions/20260717-233252/analysis-runs/color-phase2-final/`; detailed failure
+  attribution is in `color_diagnosis.md` and the score is in
+  `color-labels/after_score.json`.
+
+Regression gates: 294 CV tests and 80 capture tests pass; all 41 preserved
+historical artifact checksums pass; `IMG_4841.jpg` remains unchanged. This is
+labelled-session evidence only, not proof across all lighting. No additional
+session has human color truth yet, so the requested cross-session no-confusion
+gate remains unmeasured rather than claimed.
 
 ## Log
 
