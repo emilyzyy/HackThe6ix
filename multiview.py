@@ -29,6 +29,9 @@ from topdown import (
 from transforms import intrinsics_to_K, project_points
 
 SELECTION_PX_PER_M = 250.0
+COVERAGE_TARGET = 0.995
+CONFIRMATION_COVERAGE_FLOOR = 0.95
+RESERVED_CONFIRMATION_SLOTS = 2
 
 
 @dataclass
@@ -43,6 +46,7 @@ class ViewCandidate:
     camera_bearing_deg: float | None = None
     viewing_ray_table_xyz: tuple[float, float, float] | None = None
     view_tilt_deg: float | None = None
+    selection_role: str | None = None
 
 
 def circular_separation_deg(first: float, second: float) -> float:
@@ -70,6 +74,7 @@ def selection_geometry(
 ) -> dict:
     bearing_pairs = []
     ray_pairs = []
+    confirmation_ray_pairs = []
     for first_index, first in enumerate(selected):
         for second in selected[first_index + 1:]:
             if (
@@ -86,13 +91,19 @@ def selection_geometry(
                 first.viewing_ray_table_xyz is not None
                 and second.viewing_ray_table_xyz is not None
             ):
-                ray_pairs.append({
+                pair = {
                     "frame_ids": [first.frame_id, second.frame_id],
                     "separation_deg": view_ray_separation_deg(
                         first.viewing_ray_table_xyz,
                         second.viewing_ray_table_xyz,
                     ),
-                })
+                }
+                ray_pairs.append(pair)
+                if (
+                    first.selection_role == "confirmation"
+                    or second.selection_role == "confirmation"
+                ):
+                    confirmation_ray_pairs.append(pair)
     minimum_ray = (
         min(pair["separation_deg"] for pair in ray_pairs)
         if ray_pairs else None
@@ -101,15 +112,25 @@ def selection_geometry(
         min(pair["separation_deg"] for pair in bearing_pairs)
         if bearing_pairs else None
     )
+    minimum_confirmation = (
+        min(pair["separation_deg"] for pair in confirmation_ray_pairs)
+        if confirmation_ray_pairs else minimum_ray
+    )
     return {
         "pairwise_view_ray_separation": ray_pairs,
         "minimum_view_ray_separation_deg": minimum_ray,
+        "pairwise_confirmation_ray_separation": confirmation_ray_pairs,
+        "minimum_confirmation_ray_separation_deg": minimum_confirmation,
+        "confirmation_frame_ids": [
+            candidate.frame_id for candidate in selected
+            if candidate.selection_role == "confirmation"
+        ],
         "pairwise_bearing_separation": bearing_pairs,
         "minimum_bearing_separation_deg": minimum_bearing,
         "requested_minimum_deg": float(minimum_diversity_deg),
         "angle_diverse": bool(
-            minimum_ray is not None
-            and minimum_ray >= minimum_diversity_deg
+            minimum_confirmation is not None
+            and minimum_confirmation >= minimum_diversity_deg
         ),
     }
 
@@ -136,6 +157,8 @@ def select_covering_views(
     selected: list[ViewCandidate] = []
     covered = np.zeros_like(union)
     remaining = list(candidates)
+    for candidate in candidates:
+        candidate.selection_role = None
     while remaining and len(selected) < max_frames:
         ranked = []
         for candidate in remaining:
@@ -143,13 +166,27 @@ def select_covering_views(
             ranked.append((new_pixels, candidate.quality,
                            -candidate.frame_id, candidate))
         new_pixels, _, _, chosen = max(ranked, key=lambda item: item[:3])
-        if selected and new_pixels / union_pixels < min_gain:
-            if len(selected) >= min_frames:
-                break
+        covered_fraction = int((covered & union).sum()) / union_pixels
+        slots_left = max_frames - len(selected)
+        reserve_confirmation = bool(
+            selected
+            and slots_left <= RESERVED_CONFIRMATION_SLOTS
+            and covered_fraction >= CONFIRMATION_COVERAGE_FLOOR
+            and covered_fraction < COVERAGE_TARGET
+        )
+        low_coverage_gain = bool(
+            selected and new_pixels / union_pixels < min_gain
+        )
+        choose_confirmation = reserve_confirmation or (
+            low_coverage_gain and len(selected) < min_frames
+        )
+        if low_coverage_gain and not choose_confirmation:
+            break
+        if choose_confirmation:
             # Once meaningful coverage gain is exhausted, choose a clean view
-            # from a different camera bearing. Restrict this to the better half
-            # of the quality distribution; time separation remains the
-            # tiebreaker and the fallback when bearing is unavailable.
+            # with a different camera ray. Reserve up to two final slots once
+            # coverage exceeds 95%, because small hard-workspace fringes can
+            # otherwise consume every semantic confirmation view.
             quality_floor = float(np.median([
                 candidate.quality for candidate in candidates
             ]))
@@ -199,12 +236,15 @@ def select_covering_views(
                         -candidate.frame_id,
                     ),
                 )
+            chosen.selection_role = "confirmation"
+        else:
+            chosen.selection_role = "coverage"
         selected.append(chosen)
         remaining.remove(chosen)
         covered |= chosen.valid
         if (
             len(selected) >= min_frames
-            and int((covered & union).sum()) / union_pixels >= 0.995
+            and int((covered & union).sum()) / union_pixels >= COVERAGE_TARGET
         ):
             break
     return selected
@@ -415,6 +455,7 @@ def export_multiview(
                 if candidate.viewing_ray_table_xyz is not None else None
             ),
             "view_tilt_deg": candidate.view_tilt_deg,
+            "selection_role": candidate.selection_role,
             "image": str(image_path.relative_to(session_dir)),
             "mask": str(mask_path.relative_to(session_dir)),
             "size_wh": list(size_wh),
@@ -432,6 +473,10 @@ def export_multiview(
 
     workspace_pixels = max(1, int(selection_workspace.sum()))
     union_pixels = int(union.sum())
+    selected_union_fraction = float(
+        (selected_union & union).sum() / max(1, union_pixels)
+    )
+    coverage_complete = selected_union_fraction >= COVERAGE_TARGET
     manifest = {
         "version": 3,
         "session_dir": str(session_dir.resolve()),
@@ -448,8 +493,12 @@ def export_multiview(
             "min_confirmation_views": confirmation_views,
             "strategy": "coverage_then_view_ray_diverse_quality",
             "coverage_px_per_m": selection_px_per_m,
-            "selected_union_fraction": float(
-                (selected_union & union).sum() / max(1, union_pixels)
+            "coverage_target": COVERAGE_TARGET,
+            "selected_union_fraction": selected_union_fraction,
+            "coverage_complete": coverage_complete,
+            "coverage_insufficient_reason": (
+                None if coverage_complete
+                else "max_frames_or_confirmation_reserve_reached"
             ),
             **selection_geometry(selected),
         },

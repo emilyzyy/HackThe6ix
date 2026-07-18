@@ -114,6 +114,38 @@ def test_confirmation_selection_maximizes_minimum_ray_separation():
     assert [item.frame_id for item in selected] == [0, 20]
 
 
+def test_selection_reserves_last_two_slots_for_oblique_confirmation():
+    def mask(stop):
+        value = np.zeros((1, 100), dtype=bool)
+        value[:, :stop] = True
+        return value
+
+    candidates = [
+        _candidate(1, 10.0, mask(70), ray=(0.0, 0.0, -1.0)),
+        _candidate(2, 9.0, np.roll(mask(20), 70, axis=1),
+                   ray=(0.05, 0.0, -0.999)),
+        _candidate(3, 8.0, np.roll(mask(7), 90, axis=1),
+                   ray=(-0.05, 0.0, -0.999)),
+        _candidate(4, 7.0, np.roll(mask(1), 97, axis=1),
+                   ray=(0.1, 0.0, -0.995)),
+        _candidate(5, 7.0, np.roll(mask(1), 98, axis=1),
+                   ray=(0.2, 0.0, -0.98)),
+        _candidate(6, 7.0, np.roll(mask(1), 99, axis=1),
+                   ray=(0.3, 0.0, -0.954)),
+        _candidate(20, 8.0, mask(70), ray=(0.7, 0.0, -0.714)),
+        _candidate(30, 8.0, mask(70), ray=(-0.7, 0.0, -0.714)),
+    ]
+
+    selected = select_covering_views(
+        candidates, max_frames=5, min_frames=3
+    )
+
+    assert [item.frame_id for item in selected[:3]] == [1, 2, 3]
+    assert {item.frame_id for item in selected[3:]} == {20, 30}
+    assert all(item.selection_role == "confirmation"
+               for item in selected[3:])
+
+
 @pytest.fixture
 def session(tmp_path):
     out = tmp_path / "session"
@@ -156,6 +188,10 @@ def test_export_writes_versioned_common_canvas_manifest(session):
     )
     assert all(0.0 <= view["view_tilt_deg"] < 90.0
                for view in manifest["views"])
+    assert all(view["selection_role"] in {"coverage", "confirmation"}
+               for view in manifest["views"])
+    assert "coverage_complete" in manifest["selection"]
+    assert "coverage_insufficient_reason" in manifest["selection"]
 
 
 def test_export_fills_pixels_outside_each_valid_footprint(session):
