@@ -82,7 +82,7 @@ def select_covering_views(
     candidates: list[ViewCandidate], max_frames: int = 5,
     min_gain: float = 0.002, min_frames: int = 1,
 ) -> list[ViewCandidate]:
-    """Cover the union, then retain time-diverse views for confirmation.
+    """Cover the union, then retain angle-diverse confirmation views.
 
     Coverage alone can legitimately stop after one frame.  Instance inventory
     still needs independent views so a one-frame background false positive can
@@ -111,10 +111,9 @@ def select_covering_views(
             if len(selected) >= min_frames:
                 break
             # Once meaningful coverage gain is exhausted, choose a clean view
-            # far from every already-selected frame in time.  Restrict this to
-            # the better half of the session's quality distribution, then use
-            # quality as a gentle multiplier rather than letting adjacent peak
-            # frames crowd out independent confirmation evidence.
+            # from a different camera bearing. Restrict this to the better half
+            # of the quality distribution; time separation remains the
+            # tiebreaker and the fallback when bearing is unavailable.
             quality_floor = float(np.median([
                 candidate.quality for candidate in candidates
             ]))
