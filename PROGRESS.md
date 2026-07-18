@@ -262,6 +262,39 @@ Identification and regression result:
 Latest verification: 80 capture tests and 252 CV tests pass; the CV suite has
 one pre-existing Starlette deprecation warning.
 
+## Phase 6A bounded weak-candidate rescue (2026-07-18) — PROMOTED
+
+This phase changes only the handling of subthreshold appearance hypotheses.
+It does not yet use or promote 3D silhouette fitting.
+
+TDD and regression result:
+- `lego-capture`: 80 tests pass.
+- `lego-cv`: 259 tests pass with the same pre-existing Starlette warning.
+- The preserved pre-run artifact checksum verified all 41 baseline files.
+- The new run produced exactly 13 fused components. Box-IoU comparison matched
+  all 13 to the preserved baseline with unchanged fused boxes.
+- The black component at `[546, 472, 606, 560]` changed from unknown to LDraw
+  `3001` Brick 2 x 4. Its arbitration categories are
+  `weak_multi_view_appearance`, `metric`, and `stud`: 3001 is the top weak
+  hypothesis in frames 35 and 54, high-reliability candidate-specific metric
+  evidence is compatible, and medium-reliability stud consensus supports the
+  same candidate.
+- No other identity changed. The ten previously correct identities remain
+  correct, black Plate 2 x 12 remains `2445`, and the upside-down blue 2 x 2
+  remains `3003` without a circle-driven correction.
+- The measured final-review queue is one component under the current explicit
+  disagreement/unknown flags, below the seven-piece usability budget.
+- Exact identity accuracy on the primary session is now 11/13 when color is
+  ignored. The side blue 2 x 4 still reads `3020`, and the side white 2 x 2
+  still reads `3004`. These are not described as fixed; calibrated silhouette
+  fitting remains required, and uncertain geometry must prefer review/unknown
+  over a forced exact identity.
+
+Thresholds were not tuned from this inventory. The rescue uses the existing
+0.70 acceptance threshold and 0.50 candidate floor. Lower-ranked candidates do
+not count as full distinct-frame votes. The run-scoped candidate artifacts are
+under `sessions/20260717-233252/analysis-runs/phase1-weak-rescue/`.
+
 ## Log
 
 - 2026-07-17: Phase 1 plan written
