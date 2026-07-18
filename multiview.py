@@ -204,22 +204,46 @@ def select_covering_views(
     for candidate in candidates:
         candidate.selection_role = None
     while remaining and len(selected) < max_frames:
+        covered_fraction = int((covered & union).sum()) / union_pixels
+        slots_left = max_frames - len(selected)
+        target_reachable = _coverage_target_reachable(
+            covered, remaining, union, slots_left
+        )
         ranked = []
         for candidate in remaining:
             new_pixels = int((candidate.valid & ~covered).sum())
             ranked.append((new_pixels, candidate.quality,
                            -candidate.frame_id, candidate))
+        if (
+            target_reachable
+            and covered_fraction < COVERAGE_TARGET
+            and slots_left <= RESERVED_CONFIRMATION_SLOTS
+        ):
+            feasible_ranked = []
+            for item in ranked:
+                candidate = item[3]
+                next_covered = covered | candidate.valid
+                next_remaining = [
+                    other for other in remaining if other is not candidate
+                ]
+                if _coverage_target_reachable(
+                    next_covered,
+                    next_remaining,
+                    union,
+                    slots_left - 1,
+                ):
+                    feasible_ranked.append(item)
+            # target_reachable proves at least one such candidate exists. Keep
+            # the fallback defensive in case future policy expands the helper.
+            if feasible_ranked:
+                ranked = feasible_ranked
         new_pixels, _, _, chosen = max(ranked, key=lambda item: item[:3])
-        covered_fraction = int((covered & union).sum()) / union_pixels
-        slots_left = max_frames - len(selected)
         reserve_confirmation = bool(
             selected
             and slots_left <= RESERVED_CONFIRMATION_SLOTS
             and covered_fraction >= CONFIRMATION_COVERAGE_FLOOR
             and covered_fraction < COVERAGE_TARGET
-            and not _coverage_target_reachable(
-                covered, remaining, union, slots_left
-            )
+            and not target_reachable
         )
         low_coverage_gain = bool(
             selected and new_pixels / union_pixels < min_gain

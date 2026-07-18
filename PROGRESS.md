@@ -259,7 +259,7 @@ Identification and regression result:
   the three residuals. Additional YOLO training crops are not warranted by this
   regression.
 
-Latest verification: 78 capture tests and 252 CV tests pass; the CV suite has
+Latest verification: 79 capture tests and 252 CV tests pass; the CV suite has
 one pre-existing Starlette deprecation warning.
 
 ## Log

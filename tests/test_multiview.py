@@ -172,6 +172,40 @@ def test_selection_does_not_reserve_slots_when_coverage_target_is_feasible():
     assert all(item.selection_role == "coverage" for item in selected)
 
 
+def test_selection_preserves_a_feasible_coverage_pair_over_greedy_overlap():
+    def indices(*values):
+        mask = np.zeros((1, 100), dtype=bool)
+        mask[:, list(values)] = True
+        return mask
+
+    def span(start, stop):
+        mask = np.zeros((1, 100), dtype=bool)
+        mask[:, start:stop] = True
+        return mask
+
+    candidates = [
+        _candidate(1, 10.0, span(0, 70), ray=(0.0, 0.0, -1.0)),
+        _candidate(2, 9.0, span(70, 90), ray=(0.05, 0.0, -0.999)),
+        _candidate(3, 8.0, span(90, 95), ray=(-0.05, 0.0, -0.999)),
+        # Frames 4+5 are the only pair that covers all five remaining pixels.
+        _candidate(4, 7.0, indices(95, 96, 97), ray=(0.1, 0.0, -0.995)),
+        _candidate(5, 7.0, indices(97, 98, 99), ray=(0.2, 0.0, -0.98)),
+        # Greedy prefers this higher-quality three-pixel overlap, but neither
+        # remaining coverage view can finish after it is selected.
+        _candidate(6, 10.0, indices(95, 97, 98),
+                   ray=(0.3, 0.0, -0.954)),
+        _candidate(20, 8.0, span(0, 70), ray=(0.7, 0.0, -0.714)),
+    ]
+
+    selected = select_covering_views(
+        candidates, max_frames=5, min_frames=3
+    )
+    covered = np.logical_or.reduce([item.valid for item in selected])
+
+    assert covered.mean() >= 0.995
+    assert {item.frame_id for item in selected[-2:]} == {4, 5}
+
+
 @pytest.fixture
 def session(tmp_path):
     out = tmp_path / "session"
