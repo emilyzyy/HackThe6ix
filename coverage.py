@@ -188,10 +188,22 @@ class CoverageGrid:
 
     def workspace_bounds_xy(self, min_seen=2, close_cells=5, pad=0.0):
         """[[x0, x1], [y0, y1]] of the workspace in table coords, or None."""
-        ws = self.workspace_mask(min_seen, close_cells)
-        if not ws.any():
+        return self._bounds_for_mask(
+            self.workspace_mask(min_seen, close_cells), pad=pad
+        )
+
+    def admissible_workspace_bounds_xy(
+        self, min_seen=2, close_cells=5, pad=0.0
+    ):
+        """Bounds of the detector-independent repeated-plane component."""
+        return self._bounds_for_mask(
+            self.admissible_workspace_mask(min_seen, close_cells), pad=pad
+        )
+
+    def _bounds_for_mask(self, mask, pad=0.0):
+        if not np.any(mask):
             return None
-        ys, xs = np.nonzero(ws)
+        ys, xs = np.nonzero(mask)
         (gx0, _), (gy0, _) = self.bounds
         return [[gx0 + xs.min() * self.cell_m - pad,
                  gx0 + (xs.max() + 1) * self.cell_m + pad],

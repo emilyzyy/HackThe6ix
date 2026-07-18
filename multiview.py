@@ -19,8 +19,6 @@ import numpy as np
 from plane import compute_table_frame, load_table_frame
 from session_io import SessionReader
 from topdown import (
-    WORKSPACE_CROP_PAD_X_M,
-    WORKSPACE_CROP_PAD_Y_M,
     _load_or_build_grid,
     _fill_invalid_with_median,
     _rectify,
@@ -30,12 +28,14 @@ from topdown import (
 )
 from transforms import intrinsics_to_K, project_points
 
+SELECTION_PX_PER_M = 250.0
+
 
 @dataclass
 class ViewCandidate:
     frame_id: int
     quality: float
-    image: np.ndarray
+    image: np.ndarray | None
     valid: np.ndarray
     topdownness: float | None = None
     sharpness_score: float | None = None
@@ -183,18 +183,45 @@ def _canvas_geometry(session_dir: Path, px_per_m: float):
 
     (x0, x1), (y0, y1) = table_frame["extent_xy"]
     grid = _load_or_build_grid(session_dir)
-    workspace = grid.workspace_bounds_xy(2)
+    workspace = grid.admissible_workspace_bounds_xy(2)
     if workspace is not None:
-        x0 = max(x0, workspace[0][0] - WORKSPACE_CROP_PAD_X_M)
-        x1 = min(x1, workspace[0][1] + WORKSPACE_CROP_PAD_X_M)
-        y0 = max(y0, workspace[1][0] - WORKSPACE_CROP_PAD_Y_M)
-        y1 = min(y1, workspace[1][1] + WORKSPACE_CROP_PAD_Y_M)
+        x0 = max(x0, workspace[0][0])
+        x1 = min(x1, workspace[0][1])
+        y0 = max(y0, workspace[1][0])
+        y1 = min(y1, workspace[1][1])
     origin_xy = (x0, y0)
     size_wh = (
         int(np.ceil((x1 - x0) * px_per_m)),
         int(np.ceil((y1 - y0) * px_per_m)),
     )
     return table_frame, grid, origin_xy, size_wh
+
+
+def _workspace_mask(contours_xy, origin_xy, px_per_m, size_wh):
+    """Rasterize table-coordinate admissible contours on a canvas."""
+    mask = np.zeros((size_wh[1], size_wh[0]), dtype=np.uint8)
+    origin = np.asarray(origin_xy, dtype=float)
+    polygons = []
+    for contour in contours_xy:
+        points = np.rint(
+            (np.asarray(contour, dtype=float) - origin) * px_per_m
+        ).astype(np.int32)
+        if len(points) >= 3:
+            polygons.append(points)
+    if polygons:
+        cv2.fillPoly(mask, polygons, 1)
+    return mask.astype(bool)
+
+
+def _erode_valid(valid, edge_margin_px):
+    if edge_margin_px <= 0:
+        return valid.astype(bool)
+    kernel_size = 2 * int(edge_margin_px) + 1
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    return cv2.erode(
+        valid.astype(np.uint8), kernel,
+        borderType=cv2.BORDER_CONSTANT, borderValue=0,
+    ).astype(bool)
 
 
 def _raise_uv_per_cm(record, table_frame, origin_xy, px_per_m, size_wh):
@@ -242,16 +269,28 @@ def export_multiview(
     table_frame, grid, origin_xy, size_wh = _canvas_geometry(
         session_dir, px_per_m
     )
-    kernel_size = 2 * max(0, edge_margin_px) + 1
-    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    contours_xy = grid.admissible_workspace_contours_xy()
+    selection_px_per_m = min(px_per_m, SELECTION_PX_PER_M)
+    width_m = size_wh[0] / px_per_m
+    height_m = size_wh[1] / px_per_m
+    selection_size_wh = (
+        max(1, int(np.ceil(width_m * selection_px_per_m))),
+        max(1, int(np.ceil(height_m * selection_px_per_m))),
+    )
+    selection_workspace = _workspace_mask(
+        contours_xy, origin_xy, selection_px_per_m, selection_size_wh
+    )
+    selection_edge_margin = int(round(
+        max(0, edge_margin_px) * selection_px_per_m / px_per_m
+    ))
     candidates: list[ViewCandidate] = []
     for record in frames:
-        image, valid = _rectify(
-            record, table_frame, origin_xy, px_per_m, size_wh
+        _, valid = _rectify(
+            record, table_frame, origin_xy, selection_px_per_m,
+            selection_size_wh,
         )
-        if edge_margin_px:
-            valid = cv2.erode(valid.astype(np.uint8), kernel).astype(bool)
-        image = _fill_invalid_with_median(image, valid)
+        valid = _erode_valid(valid, selection_edge_margin)
+        valid &= selection_workspace
         topdownness = _topdownness(record, table_frame)
         sharpness_score = sharpness(record.load_rgb())
         quality = topdownness ** 2 * sharpness_score
@@ -261,7 +300,7 @@ def export_multiview(
         candidates.append(ViewCandidate(
             record.frame_id,
             quality,
-            image,
+            None,
             valid,
             topdownness=topdownness,
             sharpness_score=sharpness_score,
@@ -280,17 +319,27 @@ def export_multiview(
     )
 
     records = {record.frame_id: record for record in frames}
+    full_workspace = _workspace_mask(
+        contours_xy, origin_xy, px_per_m, size_wh
+    )
     output_dir = session_dir / "multiview"
     output_dir.mkdir(exist_ok=True)
     view_entries = []
     for candidate in selected:
+        record = records[candidate.frame_id]
+        image, valid = _rectify(
+            record, table_frame, origin_xy, px_per_m, size_wh
+        )
+        valid = _erode_valid(valid, edge_margin_px)
+        valid &= full_workspace
+        image = _fill_invalid_with_median(image, valid)
+        candidate.image = image
         stem = f"view_{candidate.frame_id:05d}"
         image_path = output_dir / f"{stem}.jpg"
         mask_path = output_dir / f"{stem}.mask.png"
-        cv2.imwrite(str(image_path), candidate.image,
+        cv2.imwrite(str(image_path), image,
                     [cv2.IMWRITE_JPEG_QUALITY, 95])
-        cv2.imwrite(str(mask_path), candidate.valid.astype(np.uint8) * 255)
-        record = records[candidate.frame_id]
+        cv2.imwrite(str(mask_path), valid.astype(np.uint8) * 255)
         homography = plane_homography(
             intrinsics_to_K(**record.intrinsics), record.pose_mat,
             table_frame["world_to_table"], px_per_m, origin_xy,
@@ -319,7 +368,8 @@ def export_multiview(
             ),
         })
 
-    canvas_pixels = union.size
+    workspace_pixels = max(1, int(selection_workspace.sum()))
+    union_pixels = int(union.sum())
     manifest = {
         "version": 3,
         "session_dir": str(session_dir.resolve()),
@@ -327,12 +377,18 @@ def export_multiview(
         "origin_xy": list(origin_xy),
         "size_wh": list(size_wh),
         "edge_margin_px": edge_margin_px,
-        "union_coverage": float(union.sum() / canvas_pixels),
-        "selected_coverage": float(selected_union.sum() / canvas_pixels),
+        "union_coverage": float(union_pixels / workspace_pixels),
+        "selected_coverage": float(
+            selected_union.sum() / workspace_pixels
+        ),
         "selection": {
             "max_frames": max_frames,
             "min_confirmation_views": confirmation_views,
             "strategy": "coverage_then_angle_diverse_quality",
+            "coverage_px_per_m": selection_px_per_m,
+            "selected_union_fraction": float(
+                (selected_union & union).sum() / max(1, union_pixels)
+            ),
             **selection_geometry(selected),
         },
         # The hard polygon is intentionally broader than the dense workspace
@@ -341,7 +397,10 @@ def export_multiview(
         "workspace_geometry": {
             "hard_source": "depth_observed_plane_component",
             "hard_contours_table_xy": (
-                grid.admissible_workspace_contours_xy()
+                contours_xy
+            ),
+            "hard_bounds_table_xy": (
+                grid.admissible_workspace_bounds_xy(2)
             ),
             "dense_bounds_table_xy": grid.workspace_bounds_xy(2),
             "table_extent_xy": table_frame["extent_xy"],

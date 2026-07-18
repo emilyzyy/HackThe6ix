@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
+import multiview
 from multiview import ViewCandidate, export_multiview, select_covering_views
 from plane import compute_table_frame
 from tests.synthetic import make_synthetic_session
@@ -144,6 +145,47 @@ def test_manifest_v3_carries_physical_and_dense_workspace(session):
     assert geometry["hard_contours_table_xy"]
     assert geometry["dense_bounds_table_xy"] is not None
     assert geometry["table_extent_xy"]
+
+
+def test_export_canvas_uses_admissible_bounds(session):
+    from multiview import _canvas_geometry
+
+    table, grid, origin, size = _canvas_geometry(session, 1000.0)
+    hard = grid.admissible_workspace_bounds_xy()
+    expected = (
+        max(table["extent_xy"][0][0], hard[0][0]),
+        min(table["extent_xy"][0][1], hard[0][1]),
+        max(table["extent_xy"][1][0], hard[1][0]),
+        min(table["extent_xy"][1][1], hard[1][1]),
+    )
+
+    assert origin == pytest.approx((expected[0], expected[2]))
+    assert size == (
+        int(np.ceil((expected[1] - expected[0]) * 1000.0)),
+        int(np.ceil((expected[3] - expected[2]) * 1000.0)),
+    )
+
+
+def test_export_rectifies_candidates_coarsely_and_selected_views_fully(
+    session, monkeypatch
+):
+    calls = []
+    real_rectify = multiview._rectify
+
+    def recording_rectify(record, table, origin, scale, size):
+        calls.append((record.frame_id, scale, size))
+        return real_rectify(record, table, origin, scale, size)
+
+    monkeypatch.setattr(multiview, "_rectify", recording_rectify)
+
+    _, manifest = export_multiview(
+        session, px_per_mm=1.0, max_frames=3
+    )
+
+    full = [call for call in calls if call[1] == 1000.0]
+    coarse = [call for call in calls if call[1] < 1000.0]
+    assert len(full) == len(manifest["views"])
+    assert len(coarse) == 16
 
 
 def test_manifest_v3_carries_bridge_geometry(tmp_path):

@@ -199,3 +199,17 @@ def test_admissible_workspace_is_empty_without_repeated_plane_cells():
 
     assert not grid.admissible_workspace_mask().any()
     assert grid.admissible_workspace_contours_xy() == []
+
+
+def test_admissible_workspace_bounds_cover_outer_region_not_dense_core():
+    grid = CoverageGrid([[0.0, 0.2], [0.0, 0.2]], cell_m=0.01)
+    grid.seen_count[1:19, 2:18] = 2
+    grid.seen_count[7:13, 7:13] = 20
+
+    hard = grid.admissible_workspace_bounds_xy()
+    dense = grid.workspace_bounds_xy()
+
+    np.testing.assert_allclose(
+        hard, [[0.02, 0.18], [0.01, 0.19]], atol=0.011
+    )
+    assert not np.allclose(hard, dense)
