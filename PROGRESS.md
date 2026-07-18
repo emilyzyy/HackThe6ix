@@ -16,6 +16,7 @@ docs/superpowers specs+plans, and session artifacts instead.
 | 1 — Bridge (identify from original crops) | manifest v2 + original-crop identification + debug overhaul + pad fix | DONE — approved 2026-07-17 |
 | 2 — Stud-count advisory tiebreaker | HoughCircles advisory + second-chance identification | DONE — approved 2026-07-17 |
 | 3 — Trained separator (yolo11n-seg) | verified dataset + local MPS training + original-frame runtime + product evaluation | IMPLEMENTED — held-out `155228` remains 17/19 |
+| 4 — Reliability-gated ID evidence | acceptance worksheet + dark studs + metric silhouettes + angle diversity + dimension flags | IMPLEMENTED 2026-07-17 — color unchanged |
 
 ## Known constraints (do NOT)
 
@@ -113,8 +114,8 @@ Runtime behavior:
   mosaic;
 - masks retain source IDs, gate evidence, original/canvas geometry, and crop
   provenance through table-coordinate fusion;
-- the capture exporter keeps at least three time-diverse confirmation views
-  when available;
+- the capture exporter keeps at least three confirmation views and now chooses
+  circular camera-bearing diversity after coverage is complete;
 - boundary-only segmented evidence needs multi-view support, while a strong
   complete singleton is still allowed where other views do not cover it;
 - identification uses isolated mask crops and may review a moderate result
@@ -152,7 +153,61 @@ cd /Users/emily/lego-cv
   /Users/emily/lego-capture/sessions/<timestamp> --detector auto
 ```
 
-Latest verification at this gate: 66 capture tests and 197 CV tests pass.
+Latest verification at this gate: 68 capture tests and 225 CV tests pass.
+
+## Phase 4 reliability evidence (2026-07-17) — IMPLEMENTED
+
+Scope stops after dimension consistency. Color correction, speed work,
+rendering, confirmation UI, and large-batch expansion were deliberately not
+changed.
+
+Acceptance and provenance:
+- `lego-cv/training/acceptance/20260717-202103.json` contains 29 stable
+  table-anchor rows. Every row is `user_verified: false`, so current acceptance
+  accuracy is intentionally `null` until Emily reviews it.
+- `multiview_result.json` now preserves raw Brickognize candidates, metric
+  evidence/action, structured stud evidence/action, final ID, ambiguity flags,
+  selected observation frames, unchanged final color, and stage timings.
+
+Dark-piece stud result:
+- The black Plate 2 x 12 (`2445`, raw score 0.8905) has masked median luminance
+  34/255. Dark CLAHE and gamma+CLAHE variants count 22 and 24 studs; the robust
+  count is 23, reliability is high, action is compatible, and final ID remains
+  `2445`.
+- The dark-blue Plate 4 x 12 produces 48 studs from both dark variants.
+- Low/disagreeing undercounts remain visible in provenance but cannot demote an
+  ID. High-reliability undercount and overcount evidence remains bidirectional.
+
+Metric silhouette and dimension result:
+- Shadow calibration on `20260717-202103`: black 2 x 12 = 19.6 x 98.8 mm;
+  dark-blue 4 x 12 = approximately 42.3 x 102.9 mm; light-blue 6 x 12 remained
+  inside the conservative projection bound; side-lying blue piece =
+  approximately 17.0 x 30.2 mm.
+- The initial consistency tolerance is `max(8 mm, 35% of nominal side)`. This
+  is a view-projection allowance, not manufacturing tolerance. It keeps the
+  audited correct large plates compatible while exposing the raw 1 x 3 versus
+  2 x 3 small-side conflict.
+- The side-lying blue raw result remains `3622` Brick 1 x 3 because Brickognize
+  supplied no 2 x 3 candidate. It is no longer silently accepted: action is
+  `flagged`, flag is `possible_non_canonical_pose`, and the proposed family is
+  `2 x 3`. No identity is invented.
+
+Angle-diverse capture result:
+- Re-export selected frames 387, 374, and 72 with bearings approximately
+  107.3, 292.6, and 198.2 degrees. Pairwise separation is about 91–175 degrees,
+  so `selection.angle_diverse` is true. Legacy version-3 manifests still load
+  with geometry unavailable and receive `view_diversity_unknown` provenance.
+
+Split-safe regression gate:
+- TRAIN-SEEN `005145`: 8/8, zero unknown, no raw-to-final ID change.
+- VALIDATION wood `150212`: 14/14, zero unknown, no raw-to-final ID change.
+- VALIDATION gray `154929`: 15/15, zero unknown, no raw-to-final ID change.
+- TEST-ENVIRONMENT `155228`: still 17/19, zero unknown. One raw 1 x 6 was
+  changed to an existing 2 x 6 API candidate by frozen high-reliability metric
+  evidence; this was recorded only after thresholds were frozen and was not
+  used for tuning.
+- Evaluation artifact:
+  `lego-cv/training/runs/reliability-evidence-20260717/` (gitignored).
 
 ## Log
 
