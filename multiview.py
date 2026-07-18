@@ -37,6 +37,45 @@ class ViewCandidate:
     quality: float
     image: np.ndarray
     valid: np.ndarray
+    topdownness: float | None = None
+    sharpness_score: float | None = None
+    camera_position_table_xyz: tuple[float, float, float] | None = None
+    camera_bearing_deg: float | None = None
+
+
+def circular_separation_deg(first: float, second: float) -> float:
+    """Smallest unsigned separation between two circular bearings."""
+    difference = abs((float(first) - float(second)) % 360.0)
+    return min(difference, 360.0 - difference)
+
+
+def selection_geometry(
+    selected: list[ViewCandidate], minimum_diversity_deg: float = 30.0,
+) -> dict:
+    pairs = []
+    for first_index, first in enumerate(selected):
+        if first.camera_bearing_deg is None:
+            continue
+        for second in selected[first_index + 1:]:
+            if second.camera_bearing_deg is None:
+                continue
+            pairs.append({
+                "frame_ids": [first.frame_id, second.frame_id],
+                "separation_deg": circular_separation_deg(
+                    first.camera_bearing_deg, second.camera_bearing_deg
+                ),
+            })
+    minimum = (
+        min(pair["separation_deg"] for pair in pairs) if pairs else None
+    )
+    return {
+        "pairwise_bearing_separation": pairs,
+        "minimum_bearing_separation_deg": minimum,
+        "requested_minimum_deg": float(minimum_diversity_deg),
+        "angle_diverse": bool(
+            minimum is not None and minimum >= minimum_diversity_deg
+        ),
+    }
 
 
 def select_covering_views(
@@ -92,17 +131,39 @@ def select_covering_views(
                 1e-9, max(max(0.0, candidate.quality)
                           for candidate in eligible)
             )
-            chosen = max(
-                eligible,
-                key=lambda candidate: (
-                    min(abs(candidate.frame_id - item.frame_id)
-                        for item in selected) / frame_span
-                    * (0.5 + 0.5 * max(0.0, candidate.quality)
-                       / quality_scale),
-                    candidate.quality,
-                    -candidate.frame_id,
-                ),
-            )
+            bearing_eligible = [
+                candidate for candidate in eligible
+                if candidate.camera_bearing_deg is not None
+            ]
+            selected_bearings = [
+                item.camera_bearing_deg for item in selected
+                if item.camera_bearing_deg is not None
+            ]
+            if bearing_eligible and selected_bearings:
+                chosen = max(
+                    bearing_eligible,
+                    key=lambda candidate: (
+                        min(circular_separation_deg(
+                            candidate.camera_bearing_deg, bearing
+                        ) for bearing in selected_bearings),
+                        min(abs(candidate.frame_id - item.frame_id)
+                            for item in selected) / frame_span,
+                        candidate.quality,
+                        -candidate.frame_id,
+                    ),
+                )
+            else:
+                chosen = max(
+                    eligible,
+                    key=lambda candidate: (
+                        min(abs(candidate.frame_id - item.frame_id)
+                            for item in selected) / frame_span
+                        * (0.5 + 0.5 * max(0.0, candidate.quality)
+                           / quality_scale),
+                        candidate.quality,
+                        -candidate.frame_id,
+                    ),
+                )
         selected.append(chosen)
         remaining.remove(chosen)
         covered |= chosen.valid
@@ -155,6 +216,20 @@ def _raise_uv_per_cm(record, table_frame, origin_xy, px_per_m, size_wh):
     return [float(uv[1][0] - uv[0][0]), float(uv[1][1] - uv[0][1])]
 
 
+def _camera_geometry(record, table_frame, origin_xy, px_per_m, size_wh):
+    camera_world = np.append(record.pose_mat[:3, 3], 1.0)
+    camera_table = (
+        table_frame["world_to_table"] @ camera_world
+    )[:3]
+    center_x = origin_xy[0] + size_wh[0] / (2.0 * px_per_m)
+    center_y = origin_xy[1] + size_wh[1] / (2.0 * px_per_m)
+    bearing = float(np.degrees(np.arctan2(
+        camera_table[1] - center_y,
+        camera_table[0] - center_x,
+    )) % 360.0)
+    return tuple(float(value) for value in camera_table), bearing
+
+
 def export_multiview(
     session_dir, px_per_mm: float = 2.0, max_frames: int = 5,
     edge_margin_px: int = 8, min_frames: int = 3,
@@ -178,10 +253,22 @@ def export_multiview(
         if edge_margin_px:
             valid = cv2.erode(valid.astype(np.uint8), kernel).astype(bool)
         image = _fill_invalid_with_median(image, valid)
-        quality = _topdownness(record, table_frame) ** 2 * sharpness(
-            record.load_rgb()
+        topdownness = _topdownness(record, table_frame)
+        sharpness_score = sharpness(record.load_rgb())
+        quality = topdownness ** 2 * sharpness_score
+        camera_position, camera_bearing = _camera_geometry(
+            record, table_frame, origin_xy, px_per_m, size_wh
         )
-        candidates.append(ViewCandidate(record.frame_id, quality, image, valid))
+        candidates.append(ViewCandidate(
+            record.frame_id,
+            quality,
+            image,
+            valid,
+            topdownness=topdownness,
+            sharpness_score=sharpness_score,
+            camera_position_table_xyz=camera_position,
+            camera_bearing_deg=camera_bearing,
+        ))
 
     union = np.logical_or.reduce([candidate.valid for candidate in candidates])
     confirmation_views = min(max_frames, max(1, min_frames))
@@ -212,6 +299,12 @@ def export_multiview(
         view_entries.append({
             "frame_id": candidate.frame_id,
             "quality": candidate.quality,
+            "topdownness": candidate.topdownness,
+            "sharpness": candidate.sharpness_score,
+            "camera_position_table_xyz": list(
+                candidate.camera_position_table_xyz
+            ) if candidate.camera_position_table_xyz is not None else None,
+            "camera_bearing_deg": candidate.camera_bearing_deg,
             "image": str(image_path.relative_to(session_dir)),
             "mask": str(mask_path.relative_to(session_dir)),
             "size_wh": list(size_wh),
@@ -240,7 +333,8 @@ def export_multiview(
         "selection": {
             "max_frames": max_frames,
             "min_confirmation_views": confirmation_views,
-            "strategy": "coverage_then_time_diverse_quality",
+            "strategy": "coverage_then_angle_diverse_quality",
+            **selection_geometry(selected),
         },
         # The hard polygon is intentionally broader than the dense workspace
         # used for the legacy rectified canvas.  It comes only from repeated

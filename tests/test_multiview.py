@@ -9,9 +9,16 @@ from plane import compute_table_frame
 from tests.synthetic import make_synthetic_session
 
 
-def _candidate(frame_id, quality, valid):
+def _candidate(frame_id, quality, valid, *, bearing=None, sharpness_score=None):
     image = np.full((*valid.shape, 3), frame_id, dtype=np.uint8)
-    return ViewCandidate(frame_id, quality, image, valid)
+    return ViewCandidate(
+        frame_id,
+        quality,
+        image,
+        valid,
+        camera_bearing_deg=bearing,
+        sharpness_score=sharpness_score,
+    )
 
 
 def test_selection_reaches_union_and_prefers_sharp_coverage_tie():
@@ -51,6 +58,28 @@ def test_selection_adds_time_diverse_confirmation_views_after_full_coverage():
     ) == 40
 
 
+def test_confirmation_selection_prefers_bearing_after_full_coverage():
+    full = np.ones((3, 4), dtype=bool)
+    candidates = [
+        _candidate(0, 10.0, full, bearing=5.0, sharpness_score=10.0),
+        _candidate(10, 8.0, full, bearing=12.0, sharpness_score=8.0),
+        _candidate(20, 8.0, full, bearing=100.0, sharpness_score=8.0),
+    ]
+
+    selected = select_covering_views(
+        candidates, max_frames=2, min_frames=2
+    )
+
+    assert [item.frame_id for item in selected] == [0, 20]
+
+
+def test_circular_bearing_separation_wraps_at_360_degrees():
+    from multiview import circular_separation_deg
+
+    assert circular_separation_deg(355.0, 5.0) == pytest.approx(10.0)
+    assert circular_separation_deg(10.0, 190.0) == pytest.approx(180.0)
+
+
 @pytest.fixture
 def session(tmp_path):
     out = tmp_path / "session"
@@ -73,6 +102,20 @@ def test_export_writes_versioned_common_canvas_manifest(session):
     assert all((session / view["image"]).exists() for view in manifest["views"])
     assert all((session / view["mask"]).exists() for view in manifest["views"])
     assert len({tuple(view["size_wh"]) for view in manifest["views"]}) == 1
+    assert manifest["selection"]["strategy"] == (
+        "coverage_then_angle_diverse_quality"
+    )
+    assert "pairwise_bearing_separation" in manifest["selection"]
+    assert all(view["topdownness"] is not None for view in manifest["views"])
+    assert all(view["sharpness"] is not None for view in manifest["views"])
+    assert all(
+        len(view["camera_position_table_xyz"]) == 3
+        for view in manifest["views"]
+    )
+    assert all(
+        0.0 <= view["camera_bearing_deg"] < 360.0
+        for view in manifest["views"]
+    )
 
 
 def test_export_fills_pixels_outside_each_valid_footprint(session):
