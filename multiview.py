@@ -69,6 +69,50 @@ def view_ray_separation_deg(first, second) -> float:
     return float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
 
 
+def _coverage_target_reachable(
+    covered: np.ndarray,
+    remaining: list[ViewCandidate],
+    union: np.ndarray,
+    slots_available: int,
+    target: float = COVERAGE_TARGET,
+) -> bool:
+    """Prove whether one or two remaining slots can reach the target.
+
+    Confirmation reservation only occurs in the final two slots. Python's
+    arbitrary-size integers make the exact single/pair union check cheap while
+    avoiding a large temporary boolean mask for every candidate pair.
+    """
+    union_pixels = int(union.sum())
+    if union_pixels == 0:
+        return True
+    target_pixels = int(np.ceil(float(target) * union_pixels))
+
+    def mask_bits(mask):
+        packed = np.packbits((mask & union).reshape(-1))
+        return int.from_bytes(packed.tobytes(), "big")
+
+    covered_bits = mask_bits(covered)
+    if covered_bits.bit_count() >= target_pixels:
+        return True
+    if slots_available <= 0 or not remaining:
+        return False
+    # This helper is only used by the two-slot reservation policy. If that
+    # policy changes, fail conservatively by continuing coverage selection.
+    if slots_available > RESERVED_CONFIRMATION_SLOTS:
+        return True
+    candidate_bits = [mask_bits(candidate.valid) for candidate in remaining]
+    for first_index, first_bits in enumerate(candidate_bits):
+        combined = covered_bits | first_bits
+        if combined.bit_count() >= target_pixels:
+            return True
+        if slots_available < 2:
+            continue
+        for second_bits in candidate_bits[first_index + 1:]:
+            if (combined | second_bits).bit_count() >= target_pixels:
+                return True
+    return False
+
+
 def selection_geometry(
     selected: list[ViewCandidate], minimum_diversity_deg: float = 30.0,
 ) -> dict:
@@ -173,6 +217,9 @@ def select_covering_views(
             and slots_left <= RESERVED_CONFIRMATION_SLOTS
             and covered_fraction >= CONFIRMATION_COVERAGE_FLOOR
             and covered_fraction < COVERAGE_TARGET
+            and not _coverage_target_reachable(
+                covered, remaining, union, slots_left
+            )
         )
         low_coverage_gain = bool(
             selected and new_pixels / union_pixels < min_gain
@@ -406,9 +453,9 @@ def export_multiview(
         ))
 
     union = np.logical_or.reduce([candidate.valid for candidate in candidates])
-    confirmation_views = min(max_frames, max(1, min_frames))
+    minimum_selected_views = min(max_frames, max(1, min_frames))
     selected = select_covering_views(
-        candidates, max_frames=max_frames, min_frames=confirmation_views
+        candidates, max_frames=max_frames, min_frames=minimum_selected_views
     )
     selected_union = (
         np.logical_or.reduce([candidate.valid for candidate in selected])
@@ -490,7 +537,14 @@ def export_multiview(
         ),
         "selection": {
             "max_frames": max_frames,
-            "min_confirmation_views": confirmation_views,
+            "min_selected_views": minimum_selected_views,
+            "reserved_confirmation_slots": min(
+                RESERVED_CONFIRMATION_SLOTS, max_frames
+            ),
+            "actual_confirmation_views": sum(
+                candidate.selection_role == "confirmation"
+                for candidate in selected
+            ),
             "strategy": "coverage_then_view_ray_diverse_quality",
             "coverage_px_per_m": selection_px_per_m,
             "coverage_target": COVERAGE_TARGET,

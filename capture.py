@@ -154,8 +154,20 @@ def _copy_confidence_frame(session):
     getter = getattr(session, "get_confidence_frame", None)
     if getter is None:
         return None
-    confidence = np.asarray(getter()).copy()
-    return confidence if confidence.size else None
+    try:
+        raw = getter()
+    except (NotImplementedError, RuntimeError):
+        return None
+    if raw is None:
+        return None
+    confidence = np.asarray(raw)
+    if (
+        confidence.ndim != 2
+        or confidence.size == 0
+        or not np.issubdtype(confidence.dtype, np.number)
+    ):
+        return None
+    return confidence.copy()
 
 
 NO_FRAMES_WARN_AFTER_S = 5.0

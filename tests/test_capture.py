@@ -116,12 +116,27 @@ def test_copy_confidence_frame_handles_absent_empty_and_populated_getters():
         def get_confidence_frame(self):
             return np.array([], dtype=np.uint8)
 
+    class NoneFrame:
+        def get_confidence_frame(self):
+            return None
+
+    class Malformed:
+        def get_confidence_frame(self):
+            return np.array([object()], dtype=object)
+
+    class Unsupported:
+        def get_confidence_frame(self):
+            raise RuntimeError("confidence is unavailable on this device")
+
     class Populated:
         def get_confidence_frame(self):
             return np.full((2, 3), 2, dtype=np.uint8)
 
     assert _copy_confidence_frame(Missing()) is None
     assert _copy_confidence_frame(Empty()) is None
+    assert _copy_confidence_frame(NoneFrame()) is None
+    assert _copy_confidence_frame(Malformed()) is None
+    assert _copy_confidence_frame(Unsupported()) is None
     np.testing.assert_array_equal(
         _copy_confidence_frame(Populated()),
         np.full((2, 3), 2, dtype=np.uint8),

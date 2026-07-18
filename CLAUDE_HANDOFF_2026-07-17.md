@@ -29,8 +29,8 @@ per-view evidence rather than being silently forced.
 
 Latest verified test totals before this handoff:
 
-- lego-capture: **77 passed**
-- lego-cv: **249 passed**
+- lego-capture: **78 passed**
+- lego-cv: **252 passed**
 - One non-failing Starlette deprecation warning may appear in the CV suite.
 
 ## 2. Repositories and current state
@@ -732,7 +732,9 @@ YOLO sees 13 accepted masks in frame 14. Across all selected views it produces
 57 accepted detections, which now fuse to exactly 13 components. A prior 14th
 component was not a hallucinated mask: two different raised pieces overlapped
 after oblique table-plane projection and cross-matched. Confirmation-only
-groups are now atomically reassigned to unambiguous coverage anchors.
+groups are now atomically reassigned only to distinct same-family coverage
+anchors under a strong absolute geometry match; ambiguous or single-anchor
+groups remain separate.
 
 Part-ID result, ignoring the explicitly out-of-scope color field:
 

@@ -239,8 +239,9 @@ Identification and regression result:
 - Fusion initially produced a false 14th component: an oblique blue detection
   and an oblique white detection cross-matched because table-plane projection
   shifts raised bricks. A confirmation-only reassignment pass now attaches each
-  observation to its unambiguous coverage anchor while preserving one
-  observation per view and leaving ambiguous groups untouched.
+  observation to its distinct, same-family coverage anchor only under a strong
+  absolute geometry match, while preserving one observation per view and
+  leaving ambiguous or single-anchor groups untouched.
 - `233252` now produces exactly 13 components from 57 accepted detections across
   five views. Frame 14 alone visibly contains 13 correct masks, so this session
   is not a segmentation-training case.
@@ -258,7 +259,7 @@ Identification and regression result:
   the three residuals. Additional YOLO training crops are not warranted by this
   regression.
 
-Latest verification: 77 capture tests and 249 CV tests pass; the CV suite has
+Latest verification: 78 capture tests and 252 CV tests pass; the CV suite has
 one pre-existing Starlette deprecation warning.
 
 ## Log

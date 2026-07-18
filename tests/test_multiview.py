@@ -146,6 +146,32 @@ def test_selection_reserves_last_two_slots_for_oblique_confirmation():
                for item in selected[3:])
 
 
+def test_selection_does_not_reserve_slots_when_coverage_target_is_feasible():
+    def span(start, stop):
+        value = np.zeros((1, 100), dtype=bool)
+        value[:, start:stop] = True
+        return value
+
+    candidates = [
+        _candidate(1, 10.0, span(0, 70), ray=(0.0, 0.0, -1.0)),
+        _candidate(2, 9.0, span(70, 90), ray=(0.05, 0.0, -0.999)),
+        _candidate(3, 8.0, span(90, 95), ray=(-0.05, 0.0, -0.999)),
+        _candidate(4, 7.0, span(95, 97), ray=(0.1, 0.0, -0.995)),
+        _candidate(5, 7.0, span(97, 100), ray=(0.2, 0.0, -0.98)),
+        _candidate(20, 8.0, span(0, 70), ray=(0.7, 0.0, -0.714)),
+        _candidate(30, 8.0, span(0, 70), ray=(-0.7, 0.0, -0.714)),
+    ]
+
+    selected = select_covering_views(
+        candidates, max_frames=5, min_frames=3
+    )
+    covered = np.logical_or.reduce([item.valid for item in selected])
+
+    assert covered.mean() >= 0.995
+    assert [item.frame_id for item in selected] == [1, 2, 3, 5, 4]
+    assert all(item.selection_role == "coverage" for item in selected)
+
+
 @pytest.fixture
 def session(tmp_path):
     out = tmp_path / "session"
@@ -163,7 +189,13 @@ def test_export_writes_versioned_common_canvas_manifest(session):
     assert json.loads(path.read_text()) == manifest
     assert manifest["version"] == 3
     assert len(manifest["views"]) == 3
-    assert manifest["selection"]["min_confirmation_views"] == 3
+    assert manifest["selection"]["min_selected_views"] == 3
+    assert manifest["selection"]["reserved_confirmation_slots"] == 2
+    assert manifest["selection"]["actual_confirmation_views"] == sum(
+        view["selection_role"] == "confirmation"
+        for view in manifest["views"]
+    )
+    assert "min_confirmation_views" not in manifest["selection"]
     assert 0 < manifest["selected_coverage"] <= manifest["union_coverage"] <= 1
     assert all((session / view["image"]).exists() for view in manifest["views"])
     assert all((session / view["mask"]).exists() for view in manifest["views"])
