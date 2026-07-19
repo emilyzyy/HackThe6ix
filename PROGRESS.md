@@ -550,7 +550,129 @@ navigation, candidate renders, color controls, and session switching. Regression
 gates are 322 CV tests and 83 capture tests passing. The sole CV warning is the
 pre-existing FastAPI/Starlette `httpx` deprecation warning.
 
+## Phase 10 BrickLink Studio draft export (2026-07-18) — GENERATED
+
+The rejected browser verifier is no longer required for routine correction. A
+new exporter writes the current draft as ordinary editable LDraw pieces, with
+the model-selected part and color prefilled. BrickLink Studio can replace a part,
+repaint it, delete accidental/duplicate pieces, and add missed pieces directly.
+
+Generated outputs:
+- `inventory-review-20260718/studio/lego-inventory-draft.mpd`
+- `inventory-review-20260718/studio/lego-inventory-draft.csv`
+
+The MPD contains one main model and twelve session-named submodels. It contains
+all 810 fused draft components exactly once. Of these, 766 have a predicted,
+confirmed, or best-candidate part; the 44 components with no part candidate use
+a conspicuous magenta Brick 1 x 1 placeholder. Ambiguous color strings use the
+model's first-listed color choice. Four edits already confirmed in the browser
+draft are respected; all other pieces use current model output.
+
+Focused verification: 7 exporter tests pass. Structural verification found 12
+session submodels, 810 component provenance records, 810 session part records,
+810 CSV rows, and 44 placeholders. Full capture regression gate: 90 tests pass.
+Design and execution plan are in `docs/superpowers/specs/2026-07-18-studio-inventory-export-design.md`
+and `docs/superpowers/plans/2026-07-18-studio-inventory-export.md`.
+
+## Phase 11 standalone demo viewer (2026-07-19) — P1 COMPLETE, AWAITING APPROVAL
+
+Demo pivot: the partner's generator now uses a pre-counted fixed inventory, so
+live CV accuracy is no longer load-bearing. The CV pipeline becomes a
+standalone demo — live scan with a camera-following glow, spatial coverage to
+completion, fused apparent inventory, then a confirmation of the safest few
+pieces. P1 (scene state + timing) is built; P2 (viewer) and P3 (showcase) are
+scoped and pending approval.
+
+### P1 audit — what already exists vs. what P1 added
+
+Already present (reused, not rebuilt): per-observation source frame id
+(`Observation.frame_id`), image-space bbox (`box_original`), instance masks
+(`mask_original`/`polygons_canvas`), real per-detection YOLO confidence
+(`Observation.confidence`, seg only), and stage timings (`timings_s`). The
+manifest already carries table geometry (`origin_xy`, `px_per_m`, `size_wh`,
+hard workspace contours) and spatial coverage (`selected_coverage`,
+`union_coverage`, `coverage_complete`).
+
+Genuinely missing, so P1 added it in `lego-cv/pipeline/scene_state.py`
+(new `scene_state.json`, written by default; `--no-scene-state` opts out):
+- **Stable instance ids.** Fused instances had no id — only a positional index.
+  `instance_id` is now that deterministic sorted index, made explicit. Honest
+  limit: stable across one scan's artifacts, re-derived if the session is
+  re-scanned; there is no persistent cross-scan identity and none was invented.
+- **Per-observation timestamps.** Not carried on `Observation`; joined from
+  `frames.jsonl` by frame id (validated present, 44 s span on `233252`).
+- **Table-coordinate footprint per instance** (`table_polygon_xy`,
+  `table_box_xy`, `table_centroid_xy`) — canvas px → table metres — so a UI can
+  project a piece into any frame.
+
+Signals we deliberately did NOT invent: there is no learned "mask completeness"
+or per-instance segmentation-quality score. `complete` is the real
+box-inside-workspace-margin boolean; `confidence` is the real YOLO box score
+and is exported as `null` for the classical `cv` detector rather than faked.
+
+### P1 real timing — end of capture → fused inventory (Apple MPS, warm cache)
+
+| stage | 233252 (13 pieces) | 162834 (89 pieces) |
+|---|---:|---:|
+| view selection (`multiview.py`) | 4.9 s | 8.6 s |
+| YOLO detect (5 frames) | 5.0 s | 34.6 s |
+| fuse | 0.00 s | 0.15 s |
+| Brickognize identify | 3.9 s | 257.6 s |
+| evidence + color | 0.8 s | 3.8 s |
+| **scan total** | **9.8 s** | **296.1 s** |
+
+The decisive findings: **fusion is effectively free**, but everything is a
+**post-capture batch** — view selection needs the full coverage grid, so the 5
+detected frames are not even known until capture ends. Brickognize dominates
+and is network-rate-limited (~1 req/s), scaling with piece count (4 min for 89
+pieces). Live per-frame segmentation is far too slow for an interactive
+overlay (5–35 s for 5 frames).
+
+### P1 — how the glow must be driven (recommendation)
+
+Fusion cannot run incrementally during the scan, so the glow is **not** driven
+by live detection. Recommended and validated mechanism: after the batch scan,
+**replay the recorded frames in capture order and project each already-fused
+piece's table polygon into the current frame via that frame's pose +
+intrinsics**; a piece lights the first frame it becomes visible in and stays
+lit. Because frames are in capture order along the camera's path, pieces light
+in a spatial trail that follows the camera — the requested zigzag — while
+reusing existing fusion identity instead of building a live tracker.
+
+Viability proven, not asserted: instance 0's exported table polygon projects
+cleanly into 4/4 arbitrary NON-selected frames (14/35/54/231/263 were the only
+detected frames; tested 50/120/200/280), centroid tracking the camera
+(405→301→615→540 px). This is a post-scan replay, not a true first-pass live
+overlay — stated plainly so P2 commits to it knowingly.
+
+### P1 gate status
+
+`scene_state.json` (v1) validated on 2 real sessions (`233252` 13 inst,
+`154929` 15 inst). Regression: **90 capture + 369 cv tests pass** (was 90 +
+364; +5 new scene-state tests, one pre-existing Starlette warning). No existing
+schema or behavior changed; artifact is purely additive. Historical session
+artifacts untouched (validation written to run-scoped scratch dirs);
+`IMG_4841.jpg` preserved. Committed on `codex/option-a-color-detection`; not
+merged/pushed. **Stopping for approval before P2.**
+
 ## Log
+
+- 2026-07-18 (source-frame inventory review): replaced unsafe cross-frame
+  review associations with a new run-scoped waypoint workspace at
+  `inventory-waypoint-validation-20260718/workspace.json`. Every review item
+  now has exactly one untouched source frame and one view; secondary frames
+  are used only through the explicit Add missed piece picker. Batch
+  `20260718-161438` uses original frame 0 with 45 primary waypoints; 44 of 49
+  completed confirmations migrated by exact reviewed-shape ID, with five old
+  confirmations absent from the primary frame. Batch `20260718-161851` shapes
+  `00002:086` and `00200:016` are separate frame-2/frame-200 records and no
+  longer share a component. The previous `inventory-validation-v2` reviews
+  retained aggregate SHA-256
+  `c4a5332eb045e85e5ba4a0ca7411d4c7a073d550840db18086c28e9980065c94`.
+  The live verifier at `http://127.0.0.1:8766/` now serves the waypoint
+  workspace. Verification: 351 CV tests passed; JavaScript syntax, live Batch
+  1 full-frame rendering, the secondary-frame picker, and Batch 2 source
+  isolation passed.
 
 - 2026-07-17: Phase 1 plan written
   (`lego-cv/docs/superpowers/plans/2026-07-17-phase1-original-crop-bridge.md`).
