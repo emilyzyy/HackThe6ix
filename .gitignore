@@ -4,3 +4,12 @@ sessions/
 .superpowers/
 inventory-review-*/
 *.pyc
+output/
+outputs/
+scratchpad/
+tmp/
+.DS_Store
+.codex-work/
+inventory-segmentation-*/
+inventory-validation-*/
+inventory-waypoint-*/

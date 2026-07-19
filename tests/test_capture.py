@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
+from types import SimpleNamespace
 
-from capture import FrameThrottler, CaptureController
+from capture import FrameThrottler, CaptureController, Record3DSource
 from session_io import SessionReader
 
 
@@ -141,3 +142,80 @@ def test_copy_confidence_frame_handles_absent_empty_and_populated_getters():
         _copy_confidence_frame(Populated()),
         np.full((2, 3), 2, dtype=np.uint8),
     )
+
+
+def test_record3d_source_fans_same_snapshot_to_preview_and_writer():
+    submitted = []
+    preview = []
+
+    class Controller:
+        def offer(self, timestamp):
+            return True
+
+        def submit(self, snapshot):
+            submitted.append(snapshot)
+
+    class Session:
+        def get_rgb_frame(self):
+            return np.full((4, 6, 3), 12, dtype=np.uint8)
+
+        def get_depth_frame(self):
+            return np.full((2, 3), 0.5, dtype=np.float32)
+
+        def get_confidence_frame(self):
+            return None
+
+        def get_camera_pose(self):
+            return SimpleNamespace(
+                qx=0.0, qy=0.0, qz=0.0, qw=1.0,
+                tx=1.0, ty=2.0, tz=3.0,
+            )
+
+        def get_intrinsic_mat(self):
+            return SimpleNamespace(fx=700.0, fy=701.0, tx=3.0, ty=2.0)
+
+        def get_device_type(self):
+            return 1
+
+    source = Record3DSource.__new__(Record3DSource)
+    source.controller = Controller()
+    source.preview_listener = preview.append
+    source.session = Session()
+
+    source._on_new_frame()
+
+    assert len(preview) == len(submitted) == 1
+    assert preview[0] is submitted[0]
+    assert preview[0]["pose"]["tx"] == 1.0
+
+
+def test_record3d_preview_receives_frames_rejected_by_writer_throttle():
+    preview = []
+
+    class Controller:
+        def offer(self, timestamp):
+            return False
+
+        def submit(self, snapshot):
+            raise AssertionError("throttled frame reached writer")
+
+    source = Record3DSource.__new__(Record3DSource)
+    source.controller = Controller()
+    source.preview_listener = preview.append
+    source.session = SimpleNamespace(
+        get_rgb_frame=lambda: np.zeros((4, 6, 3), dtype=np.uint8),
+        get_depth_frame=lambda: np.ones((2, 3), dtype=np.float32),
+        get_confidence_frame=lambda: None,
+        get_camera_pose=lambda: SimpleNamespace(
+            qx=0.0, qy=0.0, qz=0.0, qw=1.0,
+            tx=0.0, ty=0.0, tz=0.0,
+        ),
+        get_intrinsic_mat=lambda: SimpleNamespace(
+            fx=700.0, fy=700.0, tx=3.0, ty=2.0,
+        ),
+        get_device_type=lambda: 1,
+    )
+
+    source._on_new_frame()
+
+    assert len(preview) == 1

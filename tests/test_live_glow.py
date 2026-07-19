@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 
 from live_glow import (
+    FLASH_END_S,
+    GLOW_HUE_BGR,
     GlowTracker,
     back_project_polygon,
     glow_envelope,
@@ -61,22 +63,23 @@ def test_mask_stays_attached_as_camera_moves():
     ) > 20.0
 
 
-def test_glow_envelope_pulses_then_settles():
-    # At activation: a bright pulse. Later: a steady, subtler highlight.
+def test_glow_envelope_flashes_then_turns_off():
     at_start = glow_envelope(age_s=0.0)
-    mid_pulse = glow_envelope(age_s=0.15)
-    settled = glow_envelope(age_s=2.0)
-    assert at_start["phase"] == "pulse"
-    assert settled["phase"] == "steady"
-    # Peak pulse fill is clearly brighter than the settled state.
-    assert max(at_start["fill_alpha"], mid_pulse["fill_alpha"]) > \
-        settled["fill_alpha"] + 0.15
-    # Steady state is a real, persistent (non-zero) highlight.
-    assert 0.0 < settled["fill_alpha"] < max(
-        at_start["fill_alpha"], mid_pulse["fill_alpha"]
-    )
-    # Edge tracing is brightest during the discovery pulse.
-    assert at_start["edge_alpha"] >= settled["edge_alpha"]
+    fading = glow_envelope(age_s=0.35)
+    off = glow_envelope(age_s=FLASH_END_S)
+
+    assert at_start["phase"] == "flash"
+    assert fading["phase"] == "fade"
+    assert off["phase"] == "off"
+    assert at_start["fill_alpha"] > fading["fill_alpha"] > 0.0
+    assert at_start["edge_alpha"] > fading["edge_alpha"] > 0.0
+    assert off["fill_alpha"] == 0.0
+    assert off["edge_alpha"] == 0.0
+
+
+def test_live_glow_uses_short_lego_yellow_flash():
+    assert FLASH_END_S == 0.48
+    assert GLOW_HUE_BGR == (0, 213, 255)
 
 
 def _det(cx, cy, *, conf=0.9, half=0.01):
@@ -110,6 +113,94 @@ def test_low_confidence_detection_ignored():
     assert tracker.active_tracks(now=0.1) == []
 
 
+def test_nearby_detections_cannot_collapse_into_one_track_per_update():
+    tracker = GlowTracker(min_confidence=0.6, activation_stagger_s=0.0)
+
+    tracker.update(
+        [_det(0.000, 0.0, half=0.005), _det(0.015, 0.0, half=0.005)],
+        now=0.0,
+        camera_xy=(0.0, 0.0),
+    )
+
+    assert len(tracker.tracks) == 2
+    assert {round(track.table_centroid[0], 3) for track in tracker.tracks} == {
+        0.000, 0.015,
+    }
+
+
+def test_new_track_creation_is_capped_per_update():
+    tracker = GlowTracker(
+        min_confidence=0.6,
+        activation_stagger_s=0.0,
+        max_new_tracks_per_update=3,
+    )
+
+    tracker.update(
+        [_det(index * 0.05, 0.0) for index in range(6)],
+        now=0.0,
+        camera_xy=(0.0, 0.0),
+    )
+
+    assert len(tracker.tracks) == 3
+
+
+def test_new_track_budget_prefers_high_confidence_discoveries():
+    tracker = GlowTracker(
+        min_confidence=0.6,
+        activation_stagger_s=0.0,
+        max_new_tracks_per_update=1,
+    )
+
+    tracker.update(
+        [_det(0.0, 0.0, conf=0.70), _det(0.10, 0.0, conf=0.95)],
+        now=0.0,
+        camera_xy=(0.0, 0.0),
+    )
+
+    assert len(tracker.tracks) == 1
+    assert tracker.tracks[0].confidence == 0.95
+
+
+def test_new_tracks_are_spatially_separated_within_one_update():
+    tracker = GlowTracker(
+        min_confidence=0.6,
+        activation_stagger_s=0.0,
+        max_new_tracks_per_update=10,
+        new_track_spacing_m=0.04,
+    )
+
+    tracker.update(
+        [_det(x, 0.0, half=0.005) for x in (0.00, 0.02, 0.05, 0.07)],
+        now=0.0,
+        camera_xy=(0.0, 0.0),
+    )
+
+    assert [round(track.table_centroid[0], 2) for track in tracker.tracks] == [
+        0.00, 0.05,
+    ]
+
+
+def test_existing_track_refresh_does_not_consume_new_track_budget():
+    tracker = GlowTracker(
+        min_confidence=0.6,
+        activation_stagger_s=0.0,
+        max_new_tracks_per_update=1,
+        new_track_spacing_m=0.04,
+    )
+    tracker.update([_det(0.0, 0.0)], now=0.0, camera_xy=(0.0, 0.0))
+
+    tracker.update(
+        [_det(0.001, 0.0), _det(0.10, 0.0), _det(0.20, 0.0)],
+        now=1.0,
+        camera_xy=(0.0, 0.0),
+    )
+
+    assert len(tracker.tracks) == 2
+    np.testing.assert_allclose(
+        tracker.tracks[0].table_centroid, np.array([0.001, 0.0])
+    )
+
+
 def test_progressive_activation_staggers_new_tracks():
     tracker = GlowTracker(min_confidence=0.6, activation_stagger_s=0.5)
     # Three pieces seen in ONE inference update must not all activate at once.
@@ -120,6 +211,18 @@ def test_progressive_activation_staggers_new_tracks():
     assert len(tracker.active_tracks(now=0.01)) == 1
     assert len(tracker.active_tracks(now=0.55)) == 2
     assert len(tracker.active_tracks(now=1.05)) == 3
+
+
+def test_default_activation_pace_keeps_up_with_crowded_live_scan():
+    tracker = GlowTracker(min_confidence=0.6)
+    tracker.update(
+        [_det(0.00, 0.0), _det(0.05, 0.0)],
+        now=0.0,
+        camera_xy=(0.0, 0.0),
+    )
+
+    assert len(tracker.active_tracks(now=0.01)) == 1
+    assert len(tracker.active_tracks(now=0.10)) == 2
 
 
 def test_progressive_order_follows_camera_travel_direction():
@@ -152,13 +255,13 @@ def test_render_glow_tints_inside_and_leaves_outside():
     out = render_glow(frame, [track], H, now=0.05)
     img_poly = np.rint(project_polygon(poly, H)).astype(int)
     cx, cy = img_poly.mean(0).astype(int)
-    # Centre pixel shifted toward the glow hue (blue channel up from 30).
-    assert out[cy, cx][0] > frame[cy, cx][0] + 40
+    # Centre pixel shifted toward LEGO yellow (red channel up from 30).
+    assert out[cy, cx][2] > frame[cy, cx][2] + 40
     # A far corner is untouched.
     assert tuple(out[5, 5]) == (30, 30, 30)
 
 
-def test_render_glow_fresh_brighter_than_settled():
+def test_render_glow_fresh_brighter_than_faded_and_then_invisible():
     from live_glow import Track, render_glow
     K, pose, W2T = _setup()
     H = table_to_image_homography(K, pose, W2T)
@@ -171,6 +274,61 @@ def test_render_glow_fresh_brighter_than_settled():
         out = render_glow(frame, [tr], H, now=age)
         ip = np.rint(project_polygon(poly, H)).astype(int)
         cx, cy = ip.mean(0).astype(int)
-        return int(out[cy, cx][0])
+        return int(out[cy, cx][2])
 
-    assert _center_val(0.0) > _center_val(2.0)
+    assert _center_val(0.0) > _center_val(0.35) > _center_val(0.60)
+    assert _center_val(0.60) == 30
+
+
+def test_render_glow_does_no_blur_work_after_flash_ends(monkeypatch):
+    import cv2
+    from live_glow import Track, render_glow
+
+    K, pose, W2T = _setup()
+    H = table_to_image_homography(K, pose, W2T)
+    frame = np.full((1080, 1440, 3), 30, dtype=np.uint8)
+    poly = np.array([
+        [-0.02, -0.02], [0.02, -0.02], [0.02, 0.02], [-0.02, 0.02],
+    ])
+    track = Track(
+        0, poly, np.array([0.0, 0.0]), 0.9, 0.0, 0.0,
+        activation_time=0.0,
+    )
+
+    def unexpected_blur(*args, **kwargs):
+        raise AssertionError("invisible tracks must not be blurred")
+
+    monkeypatch.setattr(cv2, "GaussianBlur", unexpected_blur)
+
+    out = render_glow(frame, [track], H, now=0.60)
+
+    np.testing.assert_array_equal(out, frame)
+
+
+def test_render_glow_limits_blur_work_to_piece_region(monkeypatch):
+    """A small piece must not trigger a full-frame blur for every track."""
+    import cv2
+    from live_glow import Track, render_glow
+
+    K, pose, W2T = _setup()
+    H = table_to_image_homography(K, pose, W2T)
+    frame = np.full((1080, 1440, 3), 30, dtype=np.uint8)
+    poly = np.array([
+        [-0.02, -0.02], [0.02, -0.02], [0.02, 0.02], [-0.02, 0.02],
+    ])
+    track = Track(
+        0, poly, np.array([0.0, 0.0]), 0.9, 0.0, 0.0,
+        activation_time=0.0,
+    )
+    blur_shapes = []
+    real_blur = cv2.GaussianBlur
+
+    def recording_blur(image, *args, **kwargs):
+        blur_shapes.append(image.shape)
+        return real_blur(image, *args, **kwargs)
+
+    monkeypatch.setattr(cv2, "GaussianBlur", recording_blur)
+    render_glow(frame, [track], H, now=0.05)
+
+    assert blur_shapes
+    assert max(height * width for height, width in blur_shapes) < frame.size // 12

@@ -9,9 +9,9 @@ frame -> glow. This module is the pure core (no camera, no window, no YOLO):
 - GlowTracker: associate async detections to persistent table-space tracks,
   activate each track exactly once, stagger activations along the camera's
   travel direction (the scanning "pulse"), and expose them for rendering;
-- glow_envelope: a wall-clock discovery pulse that settles to a subtler
-  persistent highlight, sampled every UI frame independently of the (slower,
-  sampled) detection cadence.
+- glow_envelope: a short wall-clock discovery flash that fades completely,
+  sampled every UI frame independently of the (slower, sampled) detection
+  cadence.
 
 Anchoring assumes pieces rest on the table plane (z=0) — the same assumption
 the whole pipeline makes; a piece's 2D mask is back-projected onto that plane.
@@ -26,15 +26,14 @@ import numpy as np
 
 from topdown import plane_homography
 
-# Glow timing (wall-clock seconds), tuned for a visible discovery then a calm
-# persistent state. Sampled every UI frame, so animation is smooth regardless
-# of how often YOLO runs.
-PULSE_DURATION_S = 0.7
-PULSE_PEAK_ALPHA = 0.62
-STEADY_ALPHA = 0.28
-PULSE_EDGE_ALPHA = 1.0
-STEADY_EDGE_ALPHA = 0.55
-PULSE_CYCLES = 2.0  # oscillations within the discovery pulse
+# Glow timing (wall-clock seconds): a strong single discovery flash followed
+# by a quick fade. Track identity remains alive after the pixels disappear, so
+# repeated detections do not restart the animation.
+FLASH_DURATION_S = 0.20
+FLASH_END_S = 0.48
+FLASH_PEAK_ALPHA = 0.75
+FLASH_PEAK_EDGE_ALPHA = 1.0
+DEFAULT_ACTIVATION_STAGGER_S = 0.08
 
 
 def table_to_image_homography(K, cam_to_world, world_to_table):
@@ -69,28 +68,27 @@ def glow_envelope(age_s: float) -> dict:
     """Glow strength as a function of seconds since a track activated."""
     if age_s < 0.0:
         age_s = 0.0
-    if age_s < PULSE_DURATION_S:
-        progress = age_s / PULSE_DURATION_S
-        # A bright onset that oscillates, decaying into the steady level.
-        oscillation = 0.5 + 0.5 * np.cos(
-            2.0 * np.pi * PULSE_CYCLES * progress
+    if age_s < FLASH_DURATION_S:
+        progress = age_s / FLASH_DURATION_S
+        intensity = 1.0 - 0.2 * progress
+        phase = "flash"
+    elif age_s < FLASH_END_S:
+        progress = (age_s - FLASH_DURATION_S) / (
+            FLASH_END_S - FLASH_DURATION_S
         )
-        decay = 1.0 - progress
-        fill = STEADY_ALPHA + (PULSE_PEAK_ALPHA - STEADY_ALPHA) * (
-            0.4 + 0.6 * oscillation
-        ) * (0.3 + 0.7 * decay)
-        edge = STEADY_EDGE_ALPHA + (PULSE_EDGE_ALPHA - STEADY_EDGE_ALPHA) * decay
-        phase = "pulse"
+        intensity = 0.8 * (1.0 - progress) ** 2
+        phase = "fade"
     else:
-        fill = STEADY_ALPHA
-        edge = STEADY_EDGE_ALPHA
-        phase = "steady"
+        intensity = 0.0
+        phase = "off"
+    fill = FLASH_PEAK_ALPHA * intensity
+    edge = FLASH_PEAK_EDGE_ALPHA * intensity
     return {"fill_alpha": float(fill), "edge_alpha": float(edge), "phase": phase}
 
 
 # A single consistent scan/glow hue (BGR). Not the piece's real colour — the
 # live effect only communicates "a physical piece is understood here".
-GLOW_HUE_BGR = (255, 190, 40)  # bright cyan-teal
+GLOW_HUE_BGR = (0, 213, 255)  # LEGO yellow (#FFD500)
 
 
 def render_glow(frame_bgr, tracks, homography, now, *, hue_bgr=GLOW_HUE_BGR):
@@ -107,6 +105,8 @@ def render_glow(frame_bgr, tracks, homography, now, *, hue_bgr=GLOW_HUE_BGR):
         if track.activation_time is None:
             continue
         env = glow_envelope(now - track.activation_time)
+        if env["fill_alpha"] <= 0.0 and env["edge_alpha"] <= 0.0:
+            continue
         polygon = np.rint(
             project_polygon(track.table_polygon, homography)
         ).astype(np.int32)
@@ -114,29 +114,40 @@ def render_glow(frame_bgr, tracks, homography, now, *, hue_bgr=GLOW_HUE_BGR):
         if (polygon[:, 0].max() < 0 or polygon[:, 0].min() >= width
                 or polygon[:, 1].max() < 0 or polygon[:, 1].min() >= height):
             continue
-        mask = np.zeros((height, width), dtype=np.uint8)
-        cv2.fillPoly(mask, [polygon], 255)
+        sigma = max(3.0, min(width, height) * 0.01)
+        thickness = max(2, int(min(width, height) * 0.004))
+        # Glow composition used to allocate, blur, and blend a full-resolution
+        # frame once per track. A busy pile therefore blocked the UI for several
+        # seconds even though inference itself was asynchronous. Restrict the
+        # work to the projected piece plus a four-sigma halo margin.
+        pad = int(np.ceil(4.0 * sigma)) + thickness + 2
+        x0 = max(0, int(polygon[:, 0].min()) - pad)
+        y0 = max(0, int(polygon[:, 1].min()) - pad)
+        x1 = min(width, int(polygon[:, 0].max()) + pad + 1)
+        y1 = min(height, int(polygon[:, 1].max()) + pad + 1)
+        local_polygon = polygon - np.array([x0, y0], dtype=np.int32)
+        mask = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
+        cv2.fillPoly(mask, [local_polygon], 255)
         # Soft outer halo so the piece reads as "glowing", not just tinted.
-        halo = cv2.GaussianBlur(mask, (0, 0), sigmaX=max(3.0, min(width, height)
-                                                          * 0.01))
+        halo = cv2.GaussianBlur(mask, (0, 0), sigmaX=sigma)
         region = mask.astype(bool)
         fill = env["fill_alpha"]
         hue = np.array(hue_bgr, dtype=np.float32)
-        out[region] = (
-            out[region].astype(np.float32) * (1.0 - fill) + hue * fill
-        ).astype(np.uint8)
+        roi = out[y0:y1, x0:x1].astype(np.float32)
+        roi[region] = roi[region] * (1.0 - fill) + hue * fill
         halo_alpha = (halo.astype(np.float32) / 255.0)[..., None] * (
             0.35 * env["edge_alpha"]
         )
         halo_alpha[region] = 0.0  # halo only outside the solid fill
-        out = (out.astype(np.float32) * (1.0 - halo_alpha)
-               + hue * halo_alpha).astype(np.uint8)
+        roi = (roi * (1.0 - halo_alpha) + hue * halo_alpha).astype(np.uint8)
         edge = tuple(int(min(255, c * 1.0 + 60)) for c in hue_bgr)
-        thickness = max(2, int(min(width, height) * 0.004))
-        traced = out.copy()
-        cv2.polylines(traced, [polygon], True, edge, thickness, cv2.LINE_AA)
-        out = cv2.addWeighted(traced, env["edge_alpha"], out,
-                              1.0 - env["edge_alpha"], 0.0)
+        traced = roi.copy()
+        cv2.polylines(
+            traced, [local_polygon], True, edge, thickness, cv2.LINE_AA
+        )
+        out[y0:y1, x0:x1] = cv2.addWeighted(
+            traced, env["edge_alpha"], roi, 1.0 - env["edge_alpha"], 0.0
+        )
     return out
 
 
@@ -164,9 +175,13 @@ class GlowTracker:
     # Two detections within this table distance are the same physical piece.
     match_distance_m: float = 0.03
     # Space out new activations so pieces light progressively, not all at once.
-    activation_stagger_s: float = 0.35
+    activation_stagger_s: float = DEFAULT_ACTIVATION_STAGGER_S
     # Drop a track that has not been re-seen for this long (unbounded panning).
     track_ttl_s: float = 4.0
+    # Live pacing can bound and spatially distribute only newly created tracks;
+    # existing tracks remain eligible for refresh regardless of this budget.
+    max_new_tracks_per_update: int | None = None
+    new_track_spacing_m: float = 0.0
 
     tracks: list[Track] = field(default_factory=list)
     _ids: itertools.count = field(default_factory=lambda: itertools.count())
@@ -198,11 +213,19 @@ class GlowTracker:
                 item for item in self._camera_history if now - item[0] <= 1.0
             ] or self._camera_history[-2:]
 
-        for detection in detections:
+        matched_track_ids = set()
+        new_centroids = []
+        new_track_count = 0
+        ordered = sorted(
+            detections,
+            key=lambda detection: float(detection.get("confidence", 0.0)),
+            reverse=True,
+        )
+        for detection in ordered:
             if float(detection.get("confidence", 0.0)) < self.min_confidence:
                 continue
             centroid = np.asarray(detection["table_centroid"], dtype=float)
-            match = self._nearest_track(centroid)
+            match = self._nearest_track(centroid, matched_track_ids)
             if match is not None:
                 # Keep the mask attached to the freshest observed shape.
                 match.table_polygon = np.asarray(
@@ -211,7 +234,19 @@ class GlowTracker:
                 match.table_centroid = centroid
                 match.confidence = float(detection["confidence"])
                 match.last_seen = now
+                matched_track_ids.add(match.track_id)
             else:
+                if (
+                    self.max_new_tracks_per_update is not None
+                    and new_track_count >= self.max_new_tracks_per_update
+                ):
+                    continue
+                if self.new_track_spacing_m > 0.0 and any(
+                    np.linalg.norm(centroid - accepted)
+                    < self.new_track_spacing_m
+                    for accepted in new_centroids
+                ):
+                    continue
                 track = Track(
                     track_id=next(self._ids),
                     table_polygon=np.asarray(
@@ -225,12 +260,17 @@ class GlowTracker:
                 )
                 self.tracks.append(track)
                 self._pending.append(track.track_id)
+                matched_track_ids.add(track.track_id)
+                new_centroids.append(centroid)
+                new_track_count += 1
 
         self._expire(now)
 
-    def _nearest_track(self, centroid) -> Track | None:
+    def _nearest_track(self, centroid, excluded_ids=()) -> Track | None:
         best, best_distance = None, self.match_distance_m
         for track in self.tracks:
+            if track.track_id in excluded_ids:
+                continue
             distance = float(np.linalg.norm(track.table_centroid - centroid))
             if distance <= best_distance:
                 best, best_distance = track, distance

@@ -1,0 +1,26 @@
+{
+  "name": "out-of-the-box-demo-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Out of the Box — product demo video (Remotion)",
+  "scripts": {
+    "preview": "remotion studio",
+    "render": "node render.mjs",
+    "render:draft": "node render.mjs --draft",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.484",
+    "@remotion/cli": "4.0.484",
+    "@remotion/renderer": "4.0.484",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "4.0.484"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": { "node": ">=18.0.0" }
+}

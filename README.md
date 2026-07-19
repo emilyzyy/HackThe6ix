@@ -32,6 +32,31 @@ coverage window opens: gray = unseen, RGB aerial map = seen, plus a coverage %
 and a COVERAGE COMPLETE banner once ≥95 % of the dense workspace is observed.
 Sparse desk/floor observations are excluded from that workspace.
 
+## One-command hackathon demo
+
+The stitched demo records and renders through one Record3D connection, eases
+workspace coverage from 95% to 100%, shows the animated analysis interstitial,
+and opens the compact confirmation UI with up to five safety-gated pieces:
+
+```bash
+python demo_flow.py --anchor sessions/20260718-165402
+```
+
+Optional handoff configuration stays outside the generator implementation:
+
+```bash
+python demo_flow.py \
+  --anchor sessions/20260718-165402 \
+  --fixed-inventory /absolute/path/to/fixed-inventory.json \
+  --generator-url http://127.0.0.1:9000/build
+```
+
+For a phone-free integration rehearsal, use
+`python demo_flow.py --replay-session sessions/<ts>`. The fast showcase starts
+with one authoritative view, expands to at most three only when needed, and
+identifies no more than twelve locally clean crops. Live fallback flashes are
+never reused as confirmation evidence.
+
 ## Session layout
 
 ```

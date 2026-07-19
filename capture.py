@@ -98,10 +98,12 @@ class CaptureController:
 class Record3DSource:
     """Owns the Record3DStream and feeds snapshots to a CaptureController."""
 
-    def __init__(self, controller, dev_idx=0):
+    def __init__(self, controller, dev_idx=0, preview_listener=None):
         from record3d import Record3DStream  # imported here: tests run without it
 
         self.controller = controller
+        self.preview_listener = preview_listener
+        self.preview_error = None
         self.stopped = threading.Event()
         devs = Record3DStream.get_connected_devices()
         if len(devs) <= dev_idx:
@@ -115,8 +117,6 @@ class Record3DSource:
 
     def _on_new_frame(self):
         t = time.monotonic()
-        if not self.controller.offer(t):
-            return
         # Snapshot everything at one instant, on this thread, before the
         # stream overwrites its buffers — pose and pixels must match exactly.
         rgb = np.asarray(self.session.get_rgb_frame()).copy()
@@ -130,7 +130,7 @@ class Record3DSource:
             depth = cv2.flip(depth, 1)
             if confidence is not None:
                 confidence = cv2.flip(confidence, 1)
-        self.controller.submit({
+        snapshot = {
             "rgb": rgb,
             "depth": depth,
             "confidence": confidence,
@@ -140,7 +140,14 @@ class Record3DSource:
                      "tx": pose.tx, "ty": pose.ty, "tz": pose.tz},
             "device_type": device_type,
             "timestamp": t,
-        })
+        }
+        if self.preview_listener is not None:
+            try:
+                self.preview_listener(snapshot)
+            except Exception as error:  # callback thread must stay alive
+                self.preview_error = error
+        if self.controller.offer(t):
+            self.controller.submit(snapshot)
 
     def _on_stream_stopped(self):
         self.stopped.set()
