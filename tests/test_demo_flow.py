@@ -1,12 +1,20 @@
 from pathlib import Path
 
 from demo_flow import (
+    CAPTURE_ROOT,
+    CV_ROOT,
     DEFAULT_INVENTORY_CSV,
     build_parser,
     build_processing_commands,
     run_confirmation,
     validate_inventory_csv,
 )
+
+
+def test_demo_defaults_to_vendored_cv_pipeline():
+    assert CV_ROOT == CAPTURE_ROOT / "cv_pipeline"
+    assert (CV_ROOT / "fast_showcase_cli.py").exists()
+    assert (CV_ROOT / "opencv_confirmation.py").exists()
 
 
 def test_processing_commands_calibrate_select_three_views_and_fast_showcase(

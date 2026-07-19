@@ -3,7 +3,7 @@
 Records synchronized RGB / depth / pose sessions from a LiDAR iPhone over the
 record3d USB stream, tracks table coverage live while you scan, and exports a
 high-res orthographic top-down image of the workspace for the detection
-pipeline in `lego-cv/`.
+pipeline vendored in `cv_pipeline/`.
 
 Depth from the phone is coarse (~256×192) and is used **only** to find the
 table plane and mark coverage. All visual detail comes from the high-res RGB
@@ -44,11 +44,17 @@ CSV, so unavailable types are never shown:
 python demo_flow.py --anchor sessions/20260718-165402
 ```
 
-The previous yellow browser reviewer remains available as a backup:
+The scan-to-analysis-to-confirmation runtime is self-contained in
+`cv_pipeline/`; `--cv-root` remains available only as an override for local
+experiments.
+
+The previous yellow browser reviewer is still available when using an external
+CV checkout that contains the web app:
 
 ```bash
 python demo_flow.py \
   --anchor sessions/20260718-165402 \
+  --cv-root /Users/emily/lego-cv \
   --confirmation-ui web
 ```
 
@@ -98,7 +104,7 @@ python multiview.py sessions/<ts>              # clean coverage-aware view set
 ```
 
 `topdown.jpg` is cropped to the bounded workspace by default, keeping desk,
-laptop, and floor clutter out of the `lego-cv` hand-off. Use
+laptop, and floor clutter out of the CV hand-off. Use
 `python topdown.py <session> --no-workspace` for an uncropped diagnostic view.
 The default best-frame export fills pixels outside the rectified camera view
 with the median table color, so black warp borders cannot become false
@@ -109,7 +115,7 @@ mapping: pixel (u, v) ↔ table point `origin_xy + (u, v) / px_per_m`.
 
 For accurate inventory, `multiview.py` exports at most five complementary
 rectified images plus valid masks under `sessions/<ts>/multiview/`. All views
-share the same table canvas, so `lego-cv` can detect them independently and
+share the same table canvas, so the vendored CV pipeline can detect them independently and
 fuse duplicate observations without exposing the detector to stitch seams.
 
 ## No phone? Synthetic sessions

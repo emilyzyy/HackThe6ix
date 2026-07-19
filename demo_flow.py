@@ -21,7 +21,7 @@ from session_io import SessionReader
 
 
 CAPTURE_ROOT = Path(__file__).resolve().parent
-CV_ROOT = Path("/Users/emily/lego-cv")
+CV_ROOT = CAPTURE_ROOT / "cv_pipeline"
 DEFAULT_INVENTORY_CSV = (
     CAPTURE_ROOT
     / "outputs/019f72d0-9cbe-7431-8f4b-7ed4084bbd13"
