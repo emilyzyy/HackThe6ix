@@ -655,6 +655,61 @@ artifacts untouched (validation written to run-scoped scratch dirs);
 `IMG_4841.jpg` preserved. Committed on `codex/option-a-color-detection`; not
 merged/pushed. **Stopping for approval before P2.**
 
+### P2 — showcase selection + confirmation payload (2026-07-19) — COMPLETE, AWAITING APPROVAL
+
+Order updated per approval: P2 = showcase now, P3 = true live glow next.
+
+Surfaces up to N (default 5) of the SAFEST identified pieces for end-of-scan
+confirmation (inverting the old surface-the-uncertain logic), in
+`lego-cv/pipeline/showcase.py`, wired as `session_cli.py --showcase N`. Writes
+`showcase.json` (+ `debug/showcase_gallery.jpg`); purely additive, computed
+from the completed `result` after inventory is built, so it cannot change
+inventory. Conservative funnel, real signals only:
+- **Cheap local hard vetoes** (prefilter): unidentified; real warning flags
+  `identity_view_disagreement` / `dimension_mismatch` /
+  `possible_non_canonical_pose`; chosen-view crop flags `possible_shadow` /
+  `possible_specular` / `oblique_view` / `boundary_view`; boundary-zone crop;
+  incomplete crop; degenerate area. `family_reviewed` and
+  `view_diversity_unknown` are explicitly NOT vetoes (they fire on ~every
+  piece).
+- **ID-quality floors**: Brickognize top1 >= 0.80; top1-vs-next-different-part
+  margin >= 0.10; multi-view agreement >= 2 OR an exceptional single view
+  (top1 >= 0.90, margin >= 0.15) — single view is not auto-rejected; real YOLO
+  confidence >= 0.50 when present (null for cv detector is not treated as low).
+- **Safety ranking** with margin weighted highest; keep top N; below-cut safe
+  survivors and strongest rejects both recorded with reasons.
+- **Colour**: confirmation question is part-identity only; predicted colour +
+  a `color_reliable` flag (false for `ambiguous(...)`) ride in the payload for
+  optional UI use, never the question.
+
+Also updated the Brickognize identify path to **bounded concurrency** (10
+workers, was 1 req/s serial) — result-preserving (same crops/cache/responses),
+retry/backoff handles 429s.
+
+Real-session results (eye-checked crops in scratch galleries):
+
+| session | pieces | surfaced | scan time (warm) | identify (warm) |
+|---|---:|---:|---:|---:|
+| 233252 | 13 | 5/5 | 5.9 s | 1.0 s |
+| 154929 | 15 | 3/5 | 3.4 s | 0.8 s |
+| 162834 (pile) | 89 | 5/5 | 44.7 s | 6.3 s |
+
+Bounded concurrency: 89-piece identify **257.6 s → 6.3 s**. The funnel is
+brutally picky — it rejected several 0.90–0.92-confidence pieces purely on
+crop-quality flags (oblique / specular / boundary / non-canonical pose), e.g.
+233252 #12 (0.92, oblique) and #7 (0.91, boundary); 162834 #31 (0.92, side-
+lying). Every surfaced piece's stud count and part type match the crop on eye
+inspection. Two carry the known plate-vs-brick height ambiguity that a
+top-down crop can't fully resolve (233252 #9 green 1x1; 162834 #86 red
+"Plate 2x2" that could be a Brick 2x2) — flagged for Emily's physical check,
+which is exactly what the confirmation step exists for. This is evidence on
+these sessions, not a guarantee on fresh piles.
+
+Regression: **90 capture + 389 cv tests pass** (+20 showcase; no inventory
+behaviour or schema changed). Historical session artifacts preserved (validated
+in-process / with backup-restore); `IMG_4841.jpg` untouched. Committed, not
+merged/pushed. **Stopping for approval before P3 (true live glow).**
+
 ## Log
 
 - 2026-07-18 (source-frame inventory review): replaced unsafe cross-frame
