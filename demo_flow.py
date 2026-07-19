@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import socket
 import subprocess
 import threading
@@ -110,7 +111,27 @@ def _wait_for_port(port: int, timeout_s: float = 8.0) -> None:
     raise RuntimeError(f"confirmation server did not open port {port}")
 
 
+def _free_port(port: int) -> None:
+    """Kill any stale confirmation server still holding the port, so a new run
+    never opens a previous run's (already-confirmed) workspace."""
+    try:
+        pids = subprocess.run(
+            ["lsof", "-ti", f"tcp:{port}"],
+            capture_output=True, text=True, check=False,
+        ).stdout.split()
+    except FileNotFoundError:
+        return
+    for pid in pids:
+        try:
+            os.kill(int(pid), signal.SIGKILL)
+        except (ProcessLookupError, ValueError):
+            pass
+    if pids:
+        time.sleep(0.4)  # let the OS release the socket
+
+
 def _start_confirmation(workspace: Path, cv_root: Path, port: int) -> str:
+    _free_port(port)
     env = dict(os.environ)
     env["LEGO_INVENTORY_WORKSPACE"] = str(Path(workspace).resolve())
     subprocess.Popen(
