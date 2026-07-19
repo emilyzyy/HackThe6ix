@@ -710,6 +710,52 @@ behaviour or schema changed). Historical session artifacts preserved (validated
 in-process / with backup-restore); `IMG_4841.jpg` untouched. Committed, not
 merged/pushed. **Stopping for approval before P3 (true live glow).**
 
+### P3 — true live scan glow, vertical slice (2026-07-19) — COMPLETE, AWAITING APPROVAL
+
+Live segmentation-mask glow that follows the camera, NOT static boxes. New
+`lego-capture/live_glow.py` (pure engine, tested) + `live_scan_viewer.py`
+(runner). Data flow, identical for live phone and recorded replay:
+
+    frame + pose -> async sampled YOLO -> back-project mask to table plane
+                 -> GlowTracker (one table-space track per piece)
+    every UI tick -> project active tracks into current frame -> glow
+
+Reuses the P1 geometry exactly: for on-plane points, image<->table is the
+`topdown.plane_homography` (unit scale), so a detected mask is back-projected
+to the table and re-projected into any later frame — the mask stays attached
+to the physical piece as the camera moves (proven to sub-pixel in tests).
+`GlowTracker` associates async detections to persistent tracks, activates each
+**once**, and staggers new activations along the camera's travel direction (the
+scan pulse / zigzag). `glow_envelope` animates a bright discovery pulse that
+settles to a subtler persistent highlight, sampled every UI frame independent
+of the slower detection cadence. Single consistent scan hue (no per-piece
+colour — that is the confirmation step's job). Rendering never blocks on YOLO:
+the on-screen path runs detection in a worker on the latest frame only (stale
+dropped); the headless preview samples detection inline deterministically.
+
+Demonstrated on a real recorded scan (`20260717-233252`, 326 frames, actual
+`lego_seg.pt`): headless run wrote a 326-frame mp4 preview. Sample frames
+confirm the target visual — the full phone camera feed with translucent cyan
+masks traced on each physical piece's actual segmented shape (orange 1x8 beam,
+blue/white/teal bricks, the green 1x1, the yellow 2x2), a discovery counter,
+progressive activation (e.g. the centre white 1x2 not yet lit while 12 others
+are), and masks that stay attached to pieces as the camera pans between frames.
+The slice already extends past the minimal single-piece target to multi-piece
+progressive activation. Runs from the lego-cv venv (YOLO/ultralytics) with
+lego-capture on PYTHONPATH; `--live` drives the Record3D phone with a prior
+session's `table_frame.json` for anchoring.
+
+Honest limits of this slice: table anchoring reuses a recorded/prior plane fit
+(live-only incremental plane fitting is not built — the phone path expects a
+`--world-to-table` session); a track drops after a 4 s no-re-detection TTL, so
+a piece that leaves the frame stops glowing until re-seen (it cannot glow while
+off-screen); this was demonstrated headless on recorded frames with real poses
+(faithful to the live data flow) — an on-device live run needs the phone.
+
+Regression: **101 capture + 389 cv tests pass** (+11 live-glow/viewer; cv
+untouched this phase). No P1/P2 behaviour or schemas changed. Committed on
+`codex/option-a-color-detection`; not merged/pushed. **Stopping at the P3 gate.**
+
 ## Log
 
 - 2026-07-18 (source-frame inventory review): replaced unsafe cross-frame
