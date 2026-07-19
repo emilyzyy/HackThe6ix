@@ -36,10 +36,20 @@ Sparse desk/floor observations are excluded from that workspace.
 
 The stitched demo records and renders through one Record3D connection, eases
 workspace coverage from 95% to 100%, shows the animated analysis interstitial,
-and opens the compact confirmation UI with up to five safety-gated pieces:
+and continues in the same OpenCV window with three to four inventory-constrained
+confirmations. The confirmation catalog defaults to the authoritative 787-piece
+CSV, so unavailable types are never shown:
 
 ```bash
 python demo_flow.py --anchor sessions/20260718-165402
+```
+
+The previous yellow browser reviewer remains available as a backup:
+
+```bash
+python demo_flow.py \
+  --anchor sessions/20260718-165402 \
+  --confirmation-ui web
 ```
 
 Optional handoff configuration stays outside the generator implementation:
@@ -47,6 +57,7 @@ Optional handoff configuration stays outside the generator implementation:
 ```bash
 python demo_flow.py \
   --anchor sessions/20260718-165402 \
+  --inventory-csv outputs/019f72d0-9cbe-7431-8f4b-7ed4084bbd13/lego_inventory_for_model_generation_20260719.csv \
   --fixed-inventory /absolute/path/to/fixed-inventory.json \
   --generator-url http://127.0.0.1:9000/build
 ```

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import signal
 import socket
@@ -21,6 +22,11 @@ from session_io import SessionReader
 
 CAPTURE_ROOT = Path(__file__).resolve().parent
 CV_ROOT = Path("/Users/emily/lego-cv")
+DEFAULT_INVENTORY_CSV = (
+    CAPTURE_ROOT
+    / "outputs/019f72d0-9cbe-7431-8f4b-7ed4084bbd13"
+    / "lego_inventory_for_model_generation_20260719.csv"
+)
 
 
 def build_processing_commands(
@@ -31,6 +37,7 @@ def build_processing_commands(
     *,
     fixed_inventory: Path | None,
     generator_url: str | None,
+    inventory_csv: Path,
 ) -> list[list[str]]:
     capture_root = Path(capture_root)
     cv_root = Path(cv_root)
@@ -45,8 +52,9 @@ def build_processing_commands(
         [str(cv_root / ".venv/bin/python"),
          str(cv_root / "fast_showcase_cli.py"), str(session_dir),
          "--output", str(output_dir),
-         "--target", "5", "--min-safe", "3",
+         "--target", "4", "--min-safe", "3",
          "--max-views", "3", "--identify-limit", "12",
+         "--inventory-csv", str(inventory_csv),
          "--workspace", str(output_dir / "review")],
     ]
     if fixed_inventory is not None:
@@ -148,6 +156,71 @@ def _start_confirmation(workspace: Path, cv_root: Path, port: int) -> str:
     return url
 
 
+def validate_inventory_csv(path: Path) -> Path:
+    path = Path(path).resolve()
+    try:
+        with path.open(newline="", encoding="utf-8-sig") as stream:
+            reader = csv.DictReader(stream)
+            required = {"piece_type", "color", "quantity"}
+            missing = required - set(reader.fieldnames or ())
+            if missing:
+                raise ValueError(
+                    "inventory CSV missing columns: "
+                    + ", ".join(sorted(missing))
+                )
+            row_count = 0
+            for row_number, row in enumerate(reader, start=2):
+                row_count += 1
+                piece_type = " ".join((row.get("piece_type") or "").split())
+                color = " ".join((row.get("color") or "").split())
+                if not piece_type or not color:
+                    raise ValueError(
+                        f"inventory CSV row {row_number} has an empty type or color"
+                    )
+                try:
+                    quantity = int(row.get("quantity") or "")
+                except ValueError as error:
+                    raise ValueError(
+                        f"inventory CSV row {row_number} quantity must be an integer"
+                    ) from error
+                if quantity <= 0:
+                    raise ValueError(
+                        f"inventory CSV row {row_number} quantity must be positive"
+                    )
+            if row_count == 0:
+                raise ValueError("inventory CSV contains no pieces")
+    except OSError as error:
+        raise ValueError(f"cannot read inventory CSV {path}: {error}") from error
+    return path
+
+
+def run_confirmation(
+    workspace: Path,
+    cv_root: Path,
+    inventory_csv: Path,
+    mode: str,
+    port: int,
+) -> str | Path:
+    if mode == "web":
+        return _start_confirmation(workspace, cv_root, port)
+    command = [
+        str(Path(cv_root) / ".venv/bin/python"),
+        str(Path(cv_root) / "opencv_confirmation.py"),
+        "--workspace", str(workspace),
+        "--inventory-csv", str(inventory_csv),
+    ]
+    completed = subprocess.run(
+        command, cwd=str(cv_root), text=True, check=False
+    )
+    if completed.returncode:
+        raise RuntimeError(
+            f"native confirmation failed ({completed.returncode}): "
+            + " ".join(command)
+        )
+    handoff = Path(workspace).parent / "handoff.json"
+    return handoff if handoff.is_file() else Path(workspace)
+
+
 def run_post_capture(
     session_dir: Path,
     *,
@@ -155,14 +228,17 @@ def run_post_capture(
     cv_root: Path = CV_ROOT,
     fixed_inventory: Path | None = None,
     generator_url: str | None = None,
+    inventory_csv: Path = DEFAULT_INVENTORY_CSV,
+    confirmation_ui: str = "opencv",
     port: int = 8770,
-) -> tuple[Path, str]:
+) -> tuple[Path, str | Path]:
     session_dir = Path(session_dir).resolve()
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     output_dir = session_dir / "analysis-runs" / f"fast-showcase-demo-{stamp}"
     commands = build_processing_commands(
         capture_root, cv_root, session_dir, output_dir,
         fixed_inventory=fixed_inventory, generator_url=generator_url,
+        inventory_csv=inventory_csv,
     )
     frames = _analysis_frames(session_dir)
     stages = (
@@ -186,18 +262,35 @@ def run_post_capture(
     workspace = output_dir / "review" / "workspace.json"
     if not workspace.is_file():
         raise RuntimeError(f"showcase did not produce a workspace: {workspace}")
-    return workspace, _start_confirmation(workspace, cv_root, port)
+    return workspace, run_confirmation(
+        workspace, cv_root, inventory_csv, confirmation_ui, port
+    )
 
 
-def main(argv: list[str] | None = None) -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--anchor", type=Path)
     parser.add_argument("--replay-session", type=Path)
     parser.add_argument("--fixed-inventory", type=Path)
     parser.add_argument("--generator-url")
+    parser.add_argument(
+        "--inventory-csv", type=Path, default=DEFAULT_INVENTORY_CSV
+    )
+    parser.add_argument(
+        "--confirmation-ui", choices=("opencv", "web"), default="opencv"
+    )
     parser.add_argument("--port", type=int, default=8770)
     parser.add_argument("--cv-root", type=Path, default=CV_ROOT)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        inventory_csv = validate_inventory_csv(args.inventory_csv)
+    except ValueError as error:
+        parser.error(str(error))
     if args.replay_session is not None:
         session_dir = args.replay_session
     else:
@@ -218,6 +311,8 @@ def main(argv: list[str] | None = None) -> None:
         cv_root=args.cv_root,
         fixed_inventory=args.fixed_inventory,
         generator_url=args.generator_url,
+        inventory_csv=inventory_csv,
+        confirmation_ui=args.confirmation_ui,
         port=args.port,
     )
     print(f"workspace: {workspace}")
